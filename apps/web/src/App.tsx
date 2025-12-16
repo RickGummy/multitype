@@ -1,5 +1,4 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-
 import './App.css'
 
 const PROMPTS = [
@@ -15,12 +14,10 @@ function nowMs() {
 type Stats = {
   wpm: number,
   accuracy: number,
-  elapsedMs: number,
-  correct: number,
-  mistakes: number,
+  elapsedMs: number
 };
 
-type Sample = { tSec: number; wpm: number};
+type Sample = { tSec: number; wpm: number };
 
 export default function App() {
   const [promptIndex, setPromptIndex] = useState(0);
@@ -32,12 +29,20 @@ export default function App() {
 
   const [samples, setSamples] = useState<Sample[]>([]);
 
+  const [mistakeSeconds, setMistakeSeconds] = useState<number[]>([]);
+
   const done = input.length >= prompt.length;
+
+  const typeAreaRef = useRef<HTMLDivElement | null>(null);
 
   const inputRef = useRef(input);
   useEffect(() => {
     inputRef.current = input;
   }, [input]);
+
+  useEffect(() => {
+    typeAreaRef.current?.focus();
+  }, [promptIndex]);
 
   const stats: Stats | null = useMemo(() => {
     if (startedAt == null) {
@@ -47,29 +52,24 @@ export default function App() {
     const elapsedMs = Math.max(1, end - startedAt);
 
     let correct = 0;
-    let mistakes = 0;
     for (let i = 0; i < Math.min(input.length, prompt.length); i++) {
       if (input[i] == prompt[i]) {
         correct++;
       }
-      else {
-        mistakes++;
-      }
     }
 
     const accuracy = input.length === 0 ? 100 : (correct / input.length) * 100;
-
     const minutes = elapsedMs / 60000;
     const wpm = minutes === 0 ? 0 : (input.length / 5) / minutes;
 
-    return { wpm, accuracy, elapsedMs, correct, mistakes };
-  }, [input, startedAt, endedAt]);
+    return { wpm, accuracy, elapsedMs };
+  }, [input, startedAt, endedAt, prompt]);
 
   useEffect(() => {
-    if(startedAt == null) {
+    if (startedAt == null) {
       return;
     }
-    if(endedAt != null) {
+    if (endedAt != null) {
       return;
     }
     const id = window.setInterval(() => {
@@ -80,8 +80,8 @@ export default function App() {
 
       setSamples((prev) => {
         const last = prev[prev.length - 1];
-        if(last && Math.floor(last.tSec) === Math.floor(tSec)) {
-          return[...prev.slice(0, -1), { tSec, wpm }];
+        if (last && Math.floor(last.tSec) === Math.floor(tSec)) {
+          return [...prev.slice(0, -1), { tSec, wpm }];
         }
         return [...prev, { tSec, wpm }];
       });
@@ -94,6 +94,9 @@ export default function App() {
     setStartedAt(null);
     setEndedAt(null);
     setSamples([]);
+    setMistakeSeconds([]);
+
+    setTimeout(() => typeAreaRef.current?.focus(), 0);
   }
 
   function nextPrompt() {
@@ -102,35 +105,83 @@ export default function App() {
     setStartedAt(null);
     setEndedAt(null);
     setSamples([]);
+    setMistakeSeconds([]);
+    setTimeout(() => typeAreaRef.current?.focus(), 0);
   }
 
-  function handleChange(nextRaw: string) {
-    if (startedAt == null && nextRaw.length > 0) {
-      setStartedAt(nowMs());
+  function recordMistake() {
+    if (startedAt == null) {
+      return;
     }
+    const sec = Math.round((nowMs() - startedAt) / 1000);
+    setMistakeSeconds((prev) => (prev.includes(sec) ? prev : [...prev, sec]));
+  }
 
-    const next = nextRaw.slice(0, prompt.length);
-    setInput(next);
-
-    if (next.length >= prompt.length) {
+  function finishRunIfDone(nextLen: number) {
+    if (nextLen >= prompt.length && startedAt != null) {
       const end = nowMs();
-      setEndedAt(nowMs());
-      if(startedAt != null) {
-        const elapsedMs = Math.max(1, end - startedAt);
-        const minutes = elapsedMs / 60000;
-        const wpm = minutes === 0 ? 0 : (next.length / 5 ) / minutes;
-        setSamples((prev) => [...prev, { tSec: elapsedMs / 1000, wpm}]);
+      setEndedAt(end);
+
+      const elapsedMs = Math.max(1, end - startedAt);
+      const minutes = elapsedMs / 60000;
+      const wpm = minutes === 0 ? 0 : (prompt.length / 5) / minutes;
+      setSamples((prev) => [...prev, { tSec: elapsedMs / 1000, wpm }]);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      return;
+    }
+    if (done) {
+      return;
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      return;
+    }
+    if (startedAt == null) {
+      if (e.key.length === 1 || e.key == "Backspace") {
+        setStartedAt(nowMs());
+        setSamples([]);
+        setMistakeSeconds([]);
       }
     }
-    else {
-      setEndedAt(null);
+
+    if (e.key === "Backspace") {
+      setInput((prev) => prev.slice(0, -1));
+      return;
     }
+
+    if (e.key.length !== 1) {
+      return;
+    }
+
+    const nextIndex = inputRef.current.length;
+    const typedChar = e.key;
+
+    if (nextIndex < prompt.length && typedChar !== prompt[nextIndex]) {
+      recordMistake();
+    }
+    setInput((prev) => {
+      const next = (prev + typedChar).slice(0, prompt.length);
+      return next;
+    });
+
+
+    finishRunIfDone(input.length + 1);
   }
 
   if (done && stats) {
     return (
-      <StatsScreen stats={stats} samples={samples} onRetry={resetSamePrompt} onNextPrompt={nextPrompt}/>
-    )
+      <StatsScreen
+        stats={stats}
+        samples={samples}
+        mistakeSeconds={mistakeSeconds}
+        onRetry={resetSamePrompt}
+        onNextPrompt={nextPrompt}
+      />
+    );
   }
 
   return (
@@ -138,63 +189,52 @@ export default function App() {
       <div className="container">
         <header className="header"></header>
         <h1 className="title">MultiType</h1>
-        <p className="subtitle">
-          Training Mode - type the prompt below.
-        </p>
 
-        <div className="promptBox">
-          {prompt.split("").map((ch, i) => {
-            const typed = input[i];
-            const isTyped = typed !== undefined;
-            const isCorrect = isTyped && typed === ch;
-            const isCursor = i === input.length;
+        <div
+          ref={typeAreaRef}
+          tabIndex={0}
+          className="typeArea"
+          onKeyDown={onKeyDown}
+          onClick={() => typeAreaRef.current?.focus()}
+        >
+          <div className="promptBox">
+            {prompt.split("").map((ch, i) => {
+              const typed = input[i];
+              const isTyped = typed !== undefined;
+              const isCorrect = isTyped && typed === ch;
+              const isCursor = i === input.length;
 
-            return (
-              <span
-                key={i}
-                className={[
-                  "promptChar",
-                  isCursor ? "cursor" : "",
-                  isTyped && !isCorrect ? "wrong" : "",
-                ].join(" ")}
-              >
-                {ch}
-              </span>
-            );
-          })}
-        </div>
+              return (
+                <span
+                  key={i}
+                  className={[
+                    "promptChar",
+                    !isTyped ? "untyped" : "",
+                    isTyped && isCorrect ? "correct" : "",
+                    isTyped && !isCorrect ? "wrong" : "",
+                    isCursor ? "cursor" : "",
 
-        <textarea
-          className="typeBox"
-          autoFocus
-          spellCheck={false}
-          value={input}
-          onChange={(e) => handleChange(e.target.value)}
-          disabled={done}
-          placeholder="Start typing here..."
-        />
+                  ].join(" ")}
+                >
+                  {ch === " " ? "\u00A0" : ch}
+                </span>
+              );
+            })}
+          </div>
 
-        <div className="row">
-          <StatCard
-            label="WPM"
-            value={stats ? stats.wpm.toFixed(1) : "-"}
-          />
-          <StatCard
-            label="Accuracy"
-            value={stats ? `${stats.accuracy.toFixed(1)}%` : "-"}
-          />
-          <StatCard
-            label="Time"
-            value={stats ? `${(stats.elapsedMs / 1000).toFixed(2)}s` : "-"}
-          />
 
-          <button className="btn" onClick={resetSamePrompt}>
-            Reset
-          </button>
 
-          <button className="btn primary" onClick={nextPrompt}>
-            Next
-          </button>
+          <div className="hint">Click the box and start typing</div>
+
+          <div className="row center">
+            <button className="btn" onClick={resetSamePrompt}>
+              Reset
+            </button>
+
+            <button className="btn primary" onClick={nextPrompt}>
+              Next
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -210,38 +250,36 @@ function StatCard(props: { label: string; value: string }) {
   );
 }
 
-function StatsScreen(props: { 
-  stats: Stats; 
-  samples: Sample[]; 
+function StatsScreen(props: {
+  stats: Stats;
+  samples: Sample[];
+  mistakeSeconds: number[];
   onRetry: () => void
   onNextPrompt: () => void;
 }) {
-  const { stats, samples } = props;
+  const { stats, samples, mistakeSeconds } = props;
 
   return (
     <div className="page">
       <div className="container">
         <header className="header">
           <h1 className="title">Run Complete</h1>
-          <p className="subtitle">Here are your stats for this run</p>
         </header>
 
         <div className="statsGrid">
           <StatCard label="WPM" value={stats.wpm.toFixed(1)} />
           <StatCard label="Accuracy" value={`${stats.accuracy.toFixed(1)}%`} />
           <StatCard label="Time" value={`${(stats.elapsedMs / 1000).toFixed(2)}s`} />
-          <StatCard label="Correct" value={`${stats.correct}`} />
-          <StatCard label="Mistakes" value={`${stats.mistakes}`} />
         </div>
 
-        <div style={{marginTop: 16}}>
-          <div className="cardLabel" style={{ marginBottom: 8}}>
+        <div style={{ marginTop: 16 }}>
+          <div className="cardLabel" style={{ marginBottom: 8 }}>
             WPM over time
           </div>
-          <WpmChart samples={samples} />
+          <WpmChart samples={samples} mistakeSeconds={mistakeSeconds} />
         </div>
 
-        <div className="row">
+        <div className="row center" style={{ marginTop: 16 }}>
           <button className="btn primary" onClick={props.onRetry}>
             Try again
           </button>
@@ -254,15 +292,20 @@ function StatsScreen(props: {
   );
 }
 
-function WpmChart(props: { samples: Sample[] }) {
-  const { samples } = props;
+function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
+  const { samples, mistakeSeconds } = props;
   const W = 900;
   const H = 220;
-  const pad = 20;
+  const padL = 48;
+  const padR = 16;
+  const padT = 18;
+  const padB = 44;
 
-  if(!samples || samples.length < 2) {
+  const secAt = (tSec: number) => Math.round(tSec);
+
+  if (!samples || samples.length < 2) {
     return (
-      <div className="card" style={{ minWidth: 0}}>
+      <div className="card" style={{ minWidth: 0 }}>
         <div className="cardLabel">
           Not enough data yet (type longer).
         </div>
@@ -270,27 +313,172 @@ function WpmChart(props: { samples: Sample[] }) {
     )
   }
 
-  const maxT = Math.max(...samples.map((s) => s.tSec));
-  const maxWpm = Math.max(10, ...samples.map((s) => s.wpm));
-  const minWpm = Math.min(...samples.map((s) => s.wpm));
+  const maxT = Math.max(...samples.map((s) => secAt(s.tSec)));
+  const wpmVals = samples.map((s) => s.wpm);
+  const maxWpm = Math.max(10, ...wpmVals);
+  const minWpm = Math.min(1, ...wpmVals);
+  const span = Math.max(1, maxWpm - minWpm);
 
-  const toX = (t: number) => pad + ((W - 2 * pad) * (t / maxT));
+  
+  const x0 = padL;
+  const x1 = W - padR;
+  const y0 = H - padB;
+  const y1 = padT;
+
+  const toX = (t: number) => x0 + ((x1 - x0) * t / maxT);
   const toY = (wpm: number) => {
-    const span = Math.max(1, maxWpm - minWpm);
     const norm = (wpm - minWpm) / span;
-    return H - pad - (H - 2 * pad) * norm;
+    return y0 - (y0 - y1) * norm;
   };
 
-  const points = samples.map((s) => `${toX(s.tSec)},${toY(s.wpm)}`).join(" ");
+  const poly = samples.map((s) => `${toX(secAt(s.tSec))},${toY(s.wpm)}`).join(" ");
+
+  const yTicks = 5;
+  const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
+
+  
+  const sampleBySec = new Map<number, Sample>();
+
+  for (const s of samples) {
+    sampleBySec.set(secAt(s.tSec), s);
+  }
+
+  const mistakeSet = new Set(mistakeSeconds);
+ 
+
 
   return (
-    <div className="card" style={{ minWidth: 0}}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="220">
-        <rect x="0" y="0" width={W} height={H} fill="none" stroke="currentColor" opacity="0.15"/>
-        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="3" opacity="0.9"/>
+    <div className="card" style={{ minWidth: 0 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="260">
+        {Array.from({ length: yTicks + 1 }).map((_, i) => {
+          const frac = i / yTicks;
+          const y = y0 - (y0 - y1) * frac;
+          const wpmLabel = (minWpm + span * frac).toFixed(0);
+
+          return (
+            <g key={`y-${i}`}>
+              <line
+                x1={x0}
+                x2={x1}
+                y1={y}
+                y2={y}
+                stroke="currentColor"
+                opacity="0.12"
+              />
+              <text
+                x={x0 - 8}
+                y={y + 4}
+                textAnchor="end"
+                fontSize="12"
+                fill="currentColor"
+                opacity="0.6"
+              >
+                {wpmLabel}
+              </text>
+            </g>
+          );
+        })}
+
+        {Array.from({ length: Math.floor(maxT / xTickStep) + 1 }).map((_, i) => {
+          const t = i * xTickStep;
+          const x = toX(t);
+          return (
+            <g key={`x-${i}`}>
+              <line
+                x1={x}
+                x2={x}
+                y1={y1}
+                y2={y0}
+                stroke="currentColor"
+                opacity="0.10"
+              />
+              <text
+                x={x}
+                y={y0 + 18}
+                textAnchor="middle"
+                fontSize="12"
+                fill="currentColor"
+                opacity="0.6"
+              >
+                {t}s
+              </text>
+            </g>
+          );
+        })}
+
+        <text
+          x={(x0 + x1) / 2}
+          y={H - 10}
+          textAnchor="middle"
+          fontSize="12"
+          fill="currentColor"
+          opacity="0.75"
+        >
+          Time (seconds)
+        </text>
+        <text
+          x={14}
+          y={(y0 + y1) / 2}
+          textAnchor="middle"
+          fontSize="12"
+          fill="currentColor"
+          opacity="0.75"
+          transform={`rotate(-90 14 ${(y0 + y1) / 2})`}
+        >
+          WPM
+        </text>
+
+        <polyline
+          points={poly}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          opacity="0.9"
+        />
+        {samples.map((s, idx) => {
+          const sec = secAt(s.tSec);
+          if (mistakeSet.has(sec)) {
+            return null;
+          }
+          return (
+            <circle
+              key={idx}
+              cx={toX(sec)}
+              cy={toY(s.wpm)}
+              r="4"
+              fill="currentColor"
+              opacity="0.9"
+            />
+          );
+
+        })}
+
+        {mistakeSeconds.map((sec) => {
+          const s = sampleBySec.get(sec);
+          if (!s) {
+            return null;
+          }
+
+          const x = toX(sec);
+          const y = toY(s.wpm);
+          const size = 6;
+          return (
+            <path 
+              key={`m-${sec}`}
+              d={`M ${x - size} ${y - size} L ${x + size} ${y + size}
+                  M ${x - size} ${y + size} L ${x + size} ${y - size}`}
+              style={{ stroke: "var(--danger)" }}
+              strokeWidth="3"
+              strokeLinecap="round"
+              fill="none"
+              opacity="0.95"
+            />
+              
+          );
+        })}
       </svg>
       <div className="cardLabel" style={{ marginTop: 6 }}>
-        peak {maxWpm.toFixed(1)} WPM
+        {samples.length} samples peak {maxWpm.toFixed(1)} WPM
       </div>
     </div>
   );
