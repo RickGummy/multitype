@@ -206,3 +206,44 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.runList {
+  display: grid;
+  gap: 12px;
+}
+
+.runRow {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+
+.runMain{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.runWpm {
+  font-weight: 900;
+  font-size: 18px;
+}
+
+.runMeta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.runPrompt {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

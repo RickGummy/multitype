@@ -19,8 +19,48 @@ type Stats = {
 
 type Sample = { tSec: number; wpm: number };
 
-type Screen = "home" | "training" | "multiplayer" | "bots";
+type Screen = "home" | "training" | "multiplayer" | "bots" | "history";
 
+type RunResult = {
+  id: string;
+  mode: "training";
+  prompt: string;
+  endedAtIso: string;
+  wpm: number;
+  accuracy: number;
+  elapsedMs: number;
+};
+
+const RUN_KEYS = "multitype:runs:v1";
+
+function loadRuns(): RunResult[] {
+  try {
+    const raw = localStorage.getItem(RUN_KEYS);
+    if(!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  }
+  catch {
+    return [];
+  }
+}
+
+function saveRun(run : RunResult) {
+  const prev = loadRuns();
+  const next = [run, ...prev].slice(0, 200);
+  localStorage.setItem(RUN_KEYS, JSON.stringify(next));
+}
+
+function clearRuns() {
+  localStorage.removeItem(RUN_KEYS);
+}
+
+function uid() {
+  return `${Date.now()} - ${Math.random().toString(16).slice(2)}`;
+}
+ 
 export default function App() {
   const [promptIndex, setPromptIndex] = useState(0);
   const prompt = PROMPTS[promptIndex];
@@ -34,8 +74,8 @@ export default function App() {
   const [mistakeSeconds, setMistakeSeconds] = useState<number[]>([]);
 
   const [screen, setScreen] = useState<Screen>("home");
-  
-  const done = input.length >= prompt.length;
+
+  const done = screen === "training" && input.length >= prompt.length;
 
   const typeAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,6 +108,27 @@ export default function App() {
 
     return { wpm, accuracy, elapsedMs };
   }, [input, startedAt, endedAt, prompt]);
+
+  const savedEndRef = useRef<number | null>(null);
+  useEffect(() => {
+    if(endedAt == null || stats == null) {
+      return;
+    }
+    if(savedEndRef.current === endedAt) {
+      return;
+    }
+    savedEndRef.current = endedAt;
+    
+    saveRun({
+      id: uid(),
+      mode: "training",
+      prompt,
+      endedAtIso: new Date().toISOString(),
+      wpm: stats.wpm,
+      accuracy: stats.accuracy,
+      elapsedMs: stats.elapsedMs,
+    });
+  }, [endedAt, stats, prompt]);
 
   useEffect(() => {
     if (startedAt == null) {
@@ -117,7 +178,7 @@ export default function App() {
     if (startedAt == null) {
       return;
     }
-    const sec = Math.round((nowMs() - startedAt) / 1000);
+    const sec = Math.max(1, Math.floor((nowMs() - startedAt) / 1000));
     setMistakeSeconds((prev) => (prev.includes(sec) ? prev : [...prev, sec]));
   }
 
@@ -176,7 +237,7 @@ export default function App() {
     finishRunIfDone(input.length + 1);
   }
 
-  if (done && stats) {
+  if (screen === "training" && done && stats) {
     return (
       <StatsScreen
         stats={stats}
@@ -184,6 +245,7 @@ export default function App() {
         mistakeSeconds={mistakeSeconds}
         onRetry={resetSamePrompt}
         onNextPrompt={nextPrompt}
+        onHistory={() => setScreen("history")}
       />
     );
   }
@@ -220,20 +282,23 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="page">
-      <div className="container">
-        <header className="header"></header>
-        <h1 className="title">MultiType</h1>
+  if(screen == "history") {
+    return <HistoryScreen onBack={() => setScreen("home")} />;
+  }
 
-        <div
-          ref={typeAreaRef}
-          tabIndex={0}
-          className="typeArea"
-          onKeyDown={onKeyDown}
-          onClick={() => typeAreaRef.current?.focus()}
-        >
-          <div className="promptBox">
+  if(screen == "training") {
+    return (
+      <div className="page">
+        <div className="container">
+          <h1 className="title">Multitype</h1>
+          <div
+            ref={typeAreaRef}
+            tabIndex={0}
+            className="typeArea"
+            onKeyDown={onKeyDown}
+            onClick={() => typeAreaRef.current?.focus()}
+          >
+            <div className="promptBox">
             {prompt.split(/(\s+)/).map((token, tokenIdx) => {
               const isSpace = /^\s+$/.test(token);
               if(isSpace) {
@@ -272,28 +337,11 @@ export default function App() {
               );
             })}
           </div>
-
-
-
-          <div className="hint">Click the box and start typing</div>
-
-          <div className="row center">
-            <button className="btn" onClick={() => setScreen("home")}>
-              Back
-            </button>
-
-            <button className="btn" onClick={resetSamePrompt}>
-              Reset
-            </button>
-
-            <button className="btn" onClick={nextPrompt}>
-              Next
-            </button>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 }
 
 function StatCard(props: { label: string; value: string }) {
@@ -311,6 +359,7 @@ function StatsScreen(props: {
   mistakeSeconds: number[];
   onRetry: () => void
   onNextPrompt: () => void;
+  onHistory: () => void;
 }) {
   const { stats, samples, mistakeSeconds } = props;
 
@@ -335,7 +384,10 @@ function StatsScreen(props: {
         </div>
 
         <div className="row center" style={{ marginTop: 16 }}>
-          <button className="btn primary" onClick={props.onRetry}>
+        <button className="btn" onClick={props.onHistory}>
+          History
+        </button>
+          <button className="btn" onClick={props.onRetry}>
             Try again
           </button>
           <button className="btn" onClick={props.onNextPrompt}>
@@ -356,7 +408,9 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   const padT = 18;
   const padB = 44;
 
-  const secAt = (tSec: number) => Math.round(tSec);
+  const minT = 1;
+
+  const secAt = (tSec: number) => Math.max(minT, Math.floor(tSec));
 
   if (!samples || samples.length < 2) {
     return (
@@ -368,7 +422,10 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
     )
   }
 
-  const maxT = Math.max(...samples.map((s) => secAt(s.tSec)));
+  const maxT = secAt(samples[samples.length - 1].tSec);
+  
+  const tSpan = Math.max(1, maxT - minT);
+
   const wpmVals = samples.map((s) => s.wpm);
   const maxWpm = Math.max(10, ...wpmVals);
   const minWpm = Math.min(1, ...wpmVals);
@@ -380,13 +437,17 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   const y0 = H - padB;
   const y1 = padT;
 
-  const toX = (t: number) => x0 + ((x1 - x0) * t / maxT);
+  const toX = (t: number) => x0 + ((x1 - x0) * (t - minT) / tSpan);
   const toY = (wpm: number) => {
     const norm = (wpm - minWpm) / span;
     return y0 - (y0 - y1) * norm;
   };
 
-  const poly = samples.map((s) => `${toX(secAt(s.tSec))},${toY(s.wpm)}`).join(" ");
+  const poly = samples.map((s) => {
+    const t = Math.max(minT, secAt(s.tSec));
+    return `${toX(t)},${toY(s.wpm)}`;
+  })
+  .join(" ");
 
   const yTicks = 5;
   const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
@@ -434,8 +495,8 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
           );
         })}
 
-        {Array.from({ length: Math.floor(maxT / xTickStep) + 1 }).map((_, i) => {
-          const t = i * xTickStep;
+        {Array.from({ length: Math.floor((maxT - minT) / xTickStep) + 1 }).map((_, i) => {
+          const t = minT + i * xTickStep;
           const x = toX(t);
           return (
             <g key={`x-${i}`}>
@@ -491,7 +552,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
           opacity="0.9"
         />
         {samples.map((s, idx) => {
-          const sec = secAt(s.tSec);
+          const sec = Math.max(minT, secAt(s.tSec));
           if (mistakeSet.has(sec)) {
             return null;
           }
@@ -514,7 +575,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
             return null;
           }
 
-          const x = toX(sec);
+          const x = toX(Math.max(1, sec));
           const y = toY(s.wpm);
           const size = 6;
           return (
@@ -539,7 +600,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   );
 }
 
-function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots") => void }) {
+function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "history") => void }) {
   return (
     <div className="page">
       <div className="container">
@@ -555,8 +616,115 @@ function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots") =>
           <button className="menuBtn" onClick={() => props.onPick("bots")}>
             Vs Bots
           </button>
+          <button className="menuBtn" onClick={() => props.onPick("history")}>
+            History
+          </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function HistoryScreen(props: { onBack: () => void}) {
+  const [runs, setRuns] = useState<RunResult []>(() => loadRuns());
+  const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
+  const last10 = runs.slice(0, 10);
+  const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpm, 0) / last10.length : 0;
+  const accuracies = runs.slice(0, 20).map(r => r.accuracy).reverse();
+
+  return (
+    <div className="page">
+      <div className="container">
+        <h1 className="title">History</h1>
+
+        <div className="statsGrid">
+          <StatCard label="Personal Best" value={bestWpm.toFixed(1)} />
+          <StatCard label="Average (Last 10)" value={avgLast10.toFixed(1)} />
+          <StatCard label="Runs" value={`${runs.length}`} />
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <div className="cardLabel" style={{ marginBottom: 8 }}>Accuracy trend</div>
+          <AccuracyMiniChart values={accuracies} />
+        </div>
+
+        <div style={{ marginTop: 16}}>
+          <div className="cardLabel" style={{ marginBottom: 8 }}>Recent runs</div>
+          <div className="runList">
+            {runs.slice(0, 12).map((r) => (
+              <div key={r.id} className="runRow">
+                <div className="runMain">
+                  <div className="runWpm">{r.wpm.toFixed(1)} WPM</div>
+                  <div className="runMeta">
+                    {r.accuracy.toFixed(1)}% • {(r.elapsedMs / 1000).toFixed(2)}s
+                  </div>
+                </div>
+                <div className="runPrompt">{r.prompt}</div>
+              </div> 
+            ))}
+            {runs.length === 0 && (
+              <div className="cardLabel">No runs yet. Do a training run first.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="row center" style={{ marginTop: 18}}>
+          <button className="btn" onClick={props.onBack}>Back</button>
+          <button
+            className="btn"
+            onClick={() => {
+              clearRuns();
+              setRuns([]);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccuracyMiniChart(props: { values: number[] }) {
+  const values = props.values;
+  const W = 900;
+  const H = 180;
+  const padL = 48;
+  const padR = 16;
+  const padT = 16;
+  const padB = 28;
+
+  if(values.length < 2) {
+    return <div className="card"><div className="cardLabel">Not enough runs yet.</div></div>
+  }
+
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const span = Math.max(1, maxV - minV);
+
+  const x0 = padL;
+  const x1 = W - padR;
+  const y0 = H - padB;
+  const y1 = padT;
+
+  const toX = (i: number) => x0 + ((x1 - x0) * i) / (values.length - 1);
+  const toY = (v: number) => y0 - ((y0 - y1) * (v - minV)) / span;
+
+  const points = values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
+
+  return (
+    <div className="card" style={{ minWidth: 0}}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="220">
+        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="3" opacity="0.9" />
+        {values.map((v, i) => (
+          <circle key={i} cx={toX(i)} cy={toY(v)} r="4" fill="currentColor" opacity="0.9" />
+        ))}
+        <text  x={14} y ={(y0 + y1) / 2} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.75"
+          transform={`rotate(-90 14 ${(y0 + y1) / 2})`}
+        >
+          Accuracy
+        </text>
+      </svg>
     </div>
   );
 }
