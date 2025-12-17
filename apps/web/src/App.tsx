@@ -19,6 +19,8 @@ type Stats = {
 
 type Sample = { tSec: number; wpm: number };
 
+type Screen = "home" | "training" | "multiplayer" | "bots";
+
 export default function App() {
   const [promptIndex, setPromptIndex] = useState(0);
   const prompt = PROMPTS[promptIndex];
@@ -31,6 +33,8 @@ export default function App() {
 
   const [mistakeSeconds, setMistakeSeconds] = useState<number[]>([]);
 
+  const [screen, setScreen] = useState<Screen>("home");
+  
   const done = input.length >= prompt.length;
 
   const typeAreaRef = useRef<HTMLDivElement | null>(null);
@@ -184,6 +188,38 @@ export default function App() {
     );
   }
 
+  if(screen == "home") {
+    return <HomeScreen onPick={(s) => { resetSamePrompt(); setScreen(s); }} />;
+  }
+
+  if(screen == "multiplayer") {
+    return (
+      <div className="page">
+        <div className="container">
+          <h1 className="title">Multiplayer</h1>
+          <p className="hint">Coming Soon</p>
+          <div className="row center">
+            <button className="btn" onClick={() => setScreen("home")}>Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if(screen == "bots") {
+    return (
+      <div className="page">
+        <div className="container">
+          <h1 className="title">Vs Bots</h1>
+          <p className="hint">Coming Soon</p>
+          <div className="row center">
+            <button className="btn" onClick={() => setScreen("home")}>Back</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="container">
@@ -227,6 +263,10 @@ export default function App() {
           <div className="hint">Click the box and start typing</div>
 
           <div className="row center">
+            <button className="btn" onClick={() => setScreen("home")}>
+              Back
+            </button>
+
             <button className="btn" onClick={resetSamePrompt}>
               Reset
             </button>
@@ -479,6 +519,28 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
       </svg>
       <div className="cardLabel" style={{ marginTop: 6 }}>
         {samples.length} samples peak {maxWpm.toFixed(1)} WPM
+      </div>
+    </div>
+  );
+}
+
+function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots") => void }) {
+  return (
+    <div className="page">
+      <div className="container">
+        <h1 className="title">Multitype</h1>
+
+        <div className="menu">
+          <button className="menuBtn" onClick={() => props.onPick("training")}>
+            Training
+          </button>
+          <button className="menuBtn" onClick={() => props.onPick("multiplayer")}>
+            Multiplayer
+          </button>
+          <button className="menuBtn" onClick={() => props.onPick("bots")}>
+            Vs Bots
+          </button>
+        </div>
       </div>
     </div>
   );
