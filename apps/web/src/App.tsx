@@ -147,8 +147,8 @@ export default function App() {
     if (startedAt == null) {
       if (e.key.length === 1 || e.key == "Backspace") {
         setStartedAt(nowMs());
-        setSamples([]);
         setMistakeSeconds([]);
+        setSamples([{ tSec: 1, wpm: 0}]);
       }
     }
 
@@ -234,25 +234,40 @@ export default function App() {
           onClick={() => typeAreaRef.current?.focus()}
         >
           <div className="promptBox">
-            {prompt.split("").map((ch, i) => {
-              const typed = input[i];
-              const isTyped = typed !== undefined;
-              const isCorrect = isTyped && typed === ch;
-              const isCursor = i === input.length;
+            {prompt.split(/(\s+)/).map((token, tokenIdx) => {
+              const isSpace = /^\s+$/.test(token);
+              if(isSpace) {
+                return (
+                  <span key={`s-${tokenIdx}`} className="space">
+                    {token.replace(/ /g, "\u00A0")}
+                  </span>
+                );
+              }
+
+              const start = prompt.split(/(\s+)/).slice(0, tokenIdx).join("").length;
 
               return (
-                <span
-                  key={i}
-                  className={[
-                    "promptChar",
-                    !isTyped ? "untyped" : "",
-                    isTyped && isCorrect ? "correct" : "",
-                    isTyped && !isCorrect ? "wrong" : "",
-                    isCursor ? "cursor" : "",
-
-                  ].join(" ")}
-                >
-                  {ch === " " ? "\u00A0" : ch}
+                <span key={`w-${tokenIdx}`} className="word">
+                  {token.split("").map((ch, j) => {
+                    const i = start + j;
+                    const typed = input[i];
+                    const isTyped = typed !== undefined;
+                    const isCorrect = isTyped && typed == ch;
+                    const isCursor = i === input.length;
+                    return (
+                      <span key={i}
+                      className={[
+                       "promptChar",
+                       !isTyped ? "untyped" : "",
+                       isTyped && isCorrect ? "correct" : "",
+                       isTyped && !isCorrect ? "wrong" : "",
+                       isCursor ? "cursor" : "",
+                      ].join(" ")}
+                      >
+                        {ch}
+                      </span>
+                    );
+                  })}
                 </span>
               );
             })}
@@ -271,7 +286,7 @@ export default function App() {
               Reset
             </button>
 
-            <button className="btn primary" onClick={nextPrompt}>
+            <button className="btn" onClick={nextPrompt}>
               Next
             </button>
           </div>
