@@ -19,7 +19,7 @@ type Stats = {
 
 type Sample = { tSec: number; wpm: number };
 
-type Screen = "home" | "training" | "multiplayer" | "bots" | "history";
+type Screen = "home" | "training" | "multiplayer" | "bots" | "history" | "profile";
 
 type RunResult = {
   id: string;
@@ -31,7 +31,16 @@ type RunResult = {
   elapsedMs: number;
 };
 
+type Profile = {
+  displayName: string;
+}
+
 const RUN_KEYS = "multitype:runs:v1";
+const PROFILE_KEY = "multitype:profile:v1";
+
+const DEFAULT_PROFILE: Profile = {
+  displayName: "Rick",
+};
 
 function loadRuns(): RunResult[] {
   try {
@@ -51,6 +60,35 @@ function saveRun(run : RunResult) {
   const prev = loadRuns();
   const next = [run, ...prev].slice(0, 200);
   localStorage.setItem(RUN_KEYS, JSON.stringify(next));
+}
+
+function loadProfile(): Profile {
+  try {
+    const raw = localStorage.getItem(PROFILE_KEY);
+    if(!raw) {
+      return DEFAULT_PROFILE;
+    }
+    const parsed = JSON.parse(raw);
+    if(!parsed || typeof parsed !== "object") {
+      return DEFAULT_PROFILE;
+    }
+
+    return {
+      displayName:
+        typeof parsed.displayName === "string" && parsed.displayName.trim() ? parsed.displayName : DEFAULT_PROFILE.displayName,
+    };
+  }
+  catch {
+    return DEFAULT_PROFILE;
+  }
+}
+
+function saveProfile(p: Profile) {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
+}
+
+function clearProfile() {
+  localStorage.removeItem(PROFILE_KEY);
 }
 
 function clearRuns() {
@@ -342,6 +380,10 @@ export default function App() {
       </div>
     );
   }
+
+  if(screen == "profile") {
+    return <ProfileScreen onBack={() => setScreen("home")} />;
+  }
 }
 
 function StatCard(props: { label: string; value: string }) {
@@ -600,7 +642,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   );
 }
 
-function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "history") => void }) {
+function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "history" | "profile") => void }) {
   return (
     <div className="page">
       <div className="container">
@@ -619,6 +661,9 @@ function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "
           <button className="menuBtn" onClick={() => props.onPick("history")}>
             History
           </button>
+          <button className="menuBtn" onClick={() => props.onPick("profile")}>
+            Profile
+          </button>
         </div>
       </div>
     </div>
@@ -630,7 +675,7 @@ function HistoryScreen(props: { onBack: () => void}) {
   const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
   const last10 = runs.slice(0, 10);
   const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpm, 0) / last10.length : 0;
-  const accuracies = runs.slice(0, 20).map(r => r.accuracy).reverse();
+  const wpms = runs.slice(0, 20).map(r => r.wpm).reverse();
 
   return (
     <div className="page">
@@ -645,7 +690,7 @@ function HistoryScreen(props: { onBack: () => void}) {
 
         <div style={{ marginTop: 16 }}>
           <div className="cardLabel" style={{ marginBottom: 8 }}>Accuracy trend</div>
-          <AccuracyMiniChart values={accuracies} />
+          <WpmMiniChart values={wpms} />
         </div>
 
         <div style={{ marginTop: 16}}>
@@ -685,7 +730,7 @@ function HistoryScreen(props: { onBack: () => void}) {
   );
 }
 
-function AccuracyMiniChart(props: { values: number[] }) {
+function WpmMiniChart(props: { values: number[] }) {
   const values = props.values;
   const W = 900;
   const H = 180;
@@ -695,7 +740,11 @@ function AccuracyMiniChart(props: { values: number[] }) {
   const padB = 28;
 
   if(values.length < 2) {
-    return <div className="card"><div className="cardLabel">Not enough runs yet.</div></div>
+    return (
+      <div className="card">
+        <div className="cardLabel">Not enough runs yet.</div>
+      </div>
+    );
   }
 
   const minV = Math.min(...values);
@@ -712,9 +761,32 @@ function AccuracyMiniChart(props: { values: number[] }) {
 
   const points = values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
 
+  const yTicks = 5;
+
   return (
     <div className="card" style={{ minWidth: 0}}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="220">
+        {Array.from({ length: yTicks + 1 }).map((_, i) => {
+          const frac = i / yTicks;
+          const y = y0 - (y0 - y1) * frac;
+          const label = (minV + span * frac).toFixed(0);
+          return (
+            <g key={i}>
+              <line x1={x0} x2={x1} y1={y} y2={y} stroke="currentColor" opacity="0.12" />
+              <text
+                x={x0 - 8}
+                y={y + 4}
+                textAnchor="end"
+                fontSize="12"
+                fill="currentColor"
+                opacity="0.6"
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })}
+
         <polyline points={points} fill="none" stroke="currentColor" strokeWidth="3" opacity="0.9" />
         {values.map((v, i) => (
           <circle key={i} cx={toX(i)} cy={toY(v)} r="4" fill="currentColor" opacity="0.9" />
@@ -722,9 +794,66 @@ function AccuracyMiniChart(props: { values: number[] }) {
         <text  x={14} y ={(y0 + y1) / 2} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.75"
           transform={`rotate(-90 14 ${(y0 + y1) / 2})`}
         >
-          Accuracy
+          WPM
         </text>
       </svg>
+    </div>
+  );
+}
+
+function ProfileScreen(props: { onBack: () => void}) {
+  const [name, setName] = useState(() => loadProfile().displayName);
+  
+  const [runs, setRuns] = useState<RunResult[]>(() => loadRuns());
+
+  useEffect(() => {
+    setRuns(loadRuns());
+  }, []);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      saveProfile({ displayName: name.trim() || DEFAULT_PROFILE.displayName });
+    }, 400);
+    return () => window.clearTimeout(id);
+  })
+
+  const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
+  const last10 = runs.slice(0, 10);
+  const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpm, 0) / last10.length : 0;
+  const avgAccLast10 = last10.length ? last10.reduce((s, r) => s + r.accuracy, 0) / last10.length : 0;
+
+  return (
+    <div className="page">
+      <div className="container">
+        <h1 className="title">Profile</h1>
+
+        <div className="card" style={{ minWidth: 0}}>
+          <div className="cardLabel" style={{ marginBottom: 6 }}>Display name</div>
+          <input
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Rick"
+          />
+
+          <div className="statsGrid" style={{ marginTop: 16 }}>
+            <StatCard label="Runs" value={`${runs.length}`} />
+            <StatCard label="Personal Best" value={bestWpm.toFixed(1)} />
+            <StatCard label="Avg WPM (Last 10)" value={avgLast10.toFixed(1)} />
+          </div>
+
+          <div style={{ marginTop: 12 }} >
+            <div className="cardLabel">Avg Accuracy (Last 10)</div>
+            <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>
+              {avgAccLast10.toFixed(1)}%
+            </div>
+          </div>
+
+          <div className="row center" style={{ marginTop: 16 }}>
+            <button className="btn" onClick={props.onBack}>Back</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
