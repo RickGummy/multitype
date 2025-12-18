@@ -45,7 +45,7 @@ const DEFAULT_PROFILE: Profile = {
 function loadRuns(): RunResult[] {
   try {
     const raw = localStorage.getItem(RUN_KEYS);
-    if(!raw) {
+    if (!raw) {
       return [];
     }
     const parsed = JSON.parse(raw);
@@ -56,7 +56,7 @@ function loadRuns(): RunResult[] {
   }
 }
 
-function saveRun(run : RunResult) {
+function saveRun(run: RunResult) {
   const prev = loadRuns();
   const next = [run, ...prev].slice(0, 200);
   localStorage.setItem(RUN_KEYS, JSON.stringify(next));
@@ -65,11 +65,11 @@ function saveRun(run : RunResult) {
 function loadProfile(): Profile {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
-    if(!raw) {
+    if (!raw) {
       return DEFAULT_PROFILE;
     }
     const parsed = JSON.parse(raw);
-    if(!parsed || typeof parsed !== "object") {
+    if (!parsed || typeof parsed !== "object") {
       return DEFAULT_PROFILE;
     }
 
@@ -87,10 +87,6 @@ function saveProfile(p: Profile) {
   localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
 }
 
-function clearProfile() {
-  localStorage.removeItem(PROFILE_KEY);
-}
-
 function clearRuns() {
   localStorage.removeItem(RUN_KEYS);
 }
@@ -98,7 +94,7 @@ function clearRuns() {
 function uid() {
   return `${Date.now()} - ${Math.random().toString(16).slice(2)}`;
 }
- 
+
 export default function App() {
   const [promptIndex, setPromptIndex] = useState(0);
   const prompt = PROMPTS[promptIndex];
@@ -116,6 +112,11 @@ export default function App() {
   const done = screen === "training" && input.length >= prompt.length;
 
   const typeAreaRef = useRef<HTMLDivElement | null>(null);
+
+  const startedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    startedAtRef.current = startedAt;
+  }, [startedAt]);
 
   const inputRef = useRef(input);
   useEffect(() => {
@@ -149,14 +150,14 @@ export default function App() {
 
   const savedEndRef = useRef<number | null>(null);
   useEffect(() => {
-    if(endedAt == null || stats == null) {
+    if (endedAt == null || stats == null) {
       return;
     }
-    if(savedEndRef.current === endedAt) {
+    if (savedEndRef.current === endedAt) {
       return;
     }
     savedEndRef.current = endedAt;
-    
+
     saveRun({
       id: uid(),
       mode: "training",
@@ -168,6 +169,11 @@ export default function App() {
     });
   }, [endedAt, stats, prompt]);
 
+  const endedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    endedAtRef.current = endedAt;
+  }, [endedAt]);
+
   useEffect(() => {
     if (startedAt == null) {
       return;
@@ -176,7 +182,15 @@ export default function App() {
       return;
     }
     const id = window.setInterval(() => {
-      const elapsedMs = Math.max(1, nowMs() - startedAt);
+      if (endedAtRef.current != null) {
+        return;
+      }
+
+      const start = startedAtRef.current;
+      if(start == null) {
+        return;
+      }
+      const elapsedMs = Math.max(1, nowMs() - start);
       const minutes = elapsedMs / 60000;
       const wpm = minutes === 0 ? 0 : (inputRef.current.length / 5) / minutes;
       const tSec = elapsedMs / 1000;
@@ -220,16 +234,16 @@ export default function App() {
     setMistakeSeconds((prev) => (prev.includes(sec) ? prev : [...prev, sec]));
   }
 
-  function finishRunIfDone(nextLen: number) {
-    if (nextLen >= prompt.length && startedAt != null) {
-      const end = nowMs();
-      setEndedAt(end);
+  function finishRun() {
+    const end = nowMs();
+    setEndedAt(end);
 
-      const elapsedMs = Math.max(1, end - startedAt);
-      const minutes = elapsedMs / 60000;
-      const wpm = minutes === 0 ? 0 : (prompt.length / 5) / minutes;
-      setSamples((prev) => [...prev, { tSec: elapsedMs / 1000, wpm }]);
-    }
+    const start = startedAtRef.current ?? end;
+    const elapsedMs = Math.max(1, end - start);
+    const minutes = elapsedMs / 60000;
+    const wpm = minutes === 0 ? 0 : (prompt.length / 5) / minutes;
+
+    setSamples((prev) => [...prev, { tSec: elapsedMs / 1000, wpm }]);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -237,18 +251,32 @@ export default function App() {
       e.preventDefault();
       return;
     }
+    if (e.key === "Escape") {
+      resetSamePrompt();
+      return;
+    }
+    if (e.key === "Enter") {
+      if (done) {
+        nextPrompt();
+      }
+      return;
+    }
+
     if (done) {
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) {
       return;
     }
-    if (startedAt == null) {
-      if (e.key.length === 1 || e.key == "Backspace") {
-        setStartedAt(nowMs());
-        setMistakeSeconds([]);
-        setSamples([{ tSec: 1, wpm: 0}]);
-      }
+
+    const isPrintable = e.key.length === 1;
+
+    if (startedAtRef.current == null && (isPrintable || e.key === "Backspace")) {
+      const start = nowMs();
+      setStartedAt(start);
+      startedAtRef.current = start;
+      setMistakeSeconds([]);
+      setSamples([{ tSec: 1, wpm: 0 }]);
     }
 
     if (e.key === "Backspace") {
@@ -256,23 +284,23 @@ export default function App() {
       return;
     }
 
-    if (e.key.length !== 1) {
+    if (!isPrintable) {
       return;
     }
 
-    const nextIndex = inputRef.current.length;
+    const prev = inputRef.current;
+    const nextIndex = prev.length;
     const typedChar = e.key;
 
     if (nextIndex < prompt.length && typedChar !== prompt[nextIndex]) {
       recordMistake();
     }
-    setInput((prev) => {
-      const next = (prev + typedChar).slice(0, prompt.length);
-      return next;
-    });
 
-
-    finishRunIfDone(input.length + 1);
+    const next = (prev + e.key).slice(0, prompt.length);
+    setInput(next);
+    if (next.length >= prompt.length && startedAtRef.current != null) {
+      finishRun();
+    }
   }
 
   if (screen === "training" && done && stats) {
@@ -288,11 +316,11 @@ export default function App() {
     );
   }
 
-  if(screen == "home") {
+  if (screen == "home") {
     return <HomeScreen onPick={(s) => { resetSamePrompt(); setScreen(s); }} />;
   }
 
-  if(screen == "multiplayer") {
+  if (screen == "multiplayer") {
     return (
       <div className="page">
         <div className="container">
@@ -306,7 +334,7 @@ export default function App() {
     );
   }
 
-  if(screen == "bots") {
+  if (screen == "bots") {
     return (
       <div className="page">
         <div className="container">
@@ -320,11 +348,11 @@ export default function App() {
     );
   }
 
-  if(screen == "history") {
+  if (screen == "history") {
     return <HistoryScreen onBack={() => setScreen("home")} />;
   }
 
-  if(screen == "training") {
+  if (screen == "training") {
     return (
       <div className="page">
         <div className="container">
@@ -337,53 +365,54 @@ export default function App() {
             onClick={() => typeAreaRef.current?.focus()}
           >
             <div className="promptBox">
-            {prompt.split(/(\s+)/).map((token, tokenIdx) => {
-              const isSpace = /^\s+$/.test(token);
-              if(isSpace) {
+              {prompt.split(/(\s+)/).map((token, tokenIdx) => {
+                const isSpace = /^\s+$/.test(token);
+                if (isSpace) {
+                  return (
+                    <span key={`s-${tokenIdx}`} className="space">
+                      {token.replace(/ /g, "\u00A0")}
+                    </span>
+                  );
+                }
+
+                const start = prompt.split(/(\s+)/).slice(0, tokenIdx).join("").length;
+
                 return (
-                  <span key={`s-${tokenIdx}`} className="space">
-                    {token.replace(/ /g, "\u00A0")}
+                  <span key={`w-${tokenIdx}`} className="word">
+                    {token.split("").map((ch, j) => {
+                      const i = start + j;
+                      const typed = input[i];
+                      const isTyped = typed !== undefined;
+                      const isCorrect = isTyped && typed == ch;
+                      const isCursor = i === input.length;
+                      return (
+                        <span key={i}
+                          className={[
+                            "promptChar",
+                            !isTyped ? "untyped" : "",
+                            isTyped && isCorrect ? "correct" : "",
+                            isTyped && !isCorrect ? "wrong" : "",
+                            isCursor ? "cursor" : "",
+                          ].join(" ")}
+                        >
+                          {ch}
+                        </span>
+                      );
+                    })}
                   </span>
                 );
-              }
-
-              const start = prompt.split(/(\s+)/).slice(0, tokenIdx).join("").length;
-
-              return (
-                <span key={`w-${tokenIdx}`} className="word">
-                  {token.split("").map((ch, j) => {
-                    const i = start + j;
-                    const typed = input[i];
-                    const isTyped = typed !== undefined;
-                    const isCorrect = isTyped && typed == ch;
-                    const isCursor = i === input.length;
-                    return (
-                      <span key={i}
-                      className={[
-                       "promptChar",
-                       !isTyped ? "untyped" : "",
-                       isTyped && isCorrect ? "correct" : "",
-                       isTyped && !isCorrect ? "wrong" : "",
-                       isCursor ? "cursor" : "",
-                      ].join(" ")}
-                      >
-                        {ch}
-                      </span>
-                    );
-                  })}
-                </span>
-              );
-            })}
-          </div>
+              })}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  if(screen == "profile") {
+  if (screen == "profile") {
     return <ProfileScreen onBack={() => setScreen("home")} />;
   }
+  return null;
 }
 
 function StatCard(props: { label: string; value: string }) {
@@ -426,9 +455,9 @@ function StatsScreen(props: {
         </div>
 
         <div className="row center" style={{ marginTop: 16 }}>
-        <button className="btn" onClick={props.onHistory}>
-          History
-        </button>
+          <button className="btn" onClick={props.onHistory}>
+            History
+          </button>
           <button className="btn" onClick={props.onRetry}>
             Try again
           </button>
@@ -465,7 +494,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   }
 
   const maxT = secAt(samples[samples.length - 1].tSec);
-  
+
   const tSpan = Math.max(1, maxT - minT);
 
   const wpmVals = samples.map((s) => s.wpm);
@@ -473,7 +502,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   const minWpm = Math.min(1, ...wpmVals);
   const span = Math.max(1, maxWpm - minWpm);
 
-  
+
   const x0 = padL;
   const x1 = W - padR;
   const y0 = H - padB;
@@ -489,12 +518,12 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
     const t = Math.max(minT, secAt(s.tSec));
     return `${toX(t)},${toY(s.wpm)}`;
   })
-  .join(" ");
+    .join(" ");
 
   const yTicks = 5;
   const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
 
-  
+
   const sampleBySec = new Map<number, Sample>();
 
   for (const s of samples) {
@@ -502,7 +531,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
   }
 
   const mistakeSet = new Set(mistakeSeconds);
- 
+
 
 
   return (
@@ -621,7 +650,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
           const y = toY(s.wpm);
           const size = 6;
           return (
-            <path 
+            <path
               key={`m-${sec}`}
               d={`M ${x - size} ${y - size} L ${x + size} ${y + size}
                   M ${x - size} ${y + size} L ${x + size} ${y - size}`}
@@ -631,7 +660,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
               fill="none"
               opacity="0.95"
             />
-              
+
           );
         })}
       </svg>
@@ -670,8 +699,8 @@ function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "
   );
 }
 
-function HistoryScreen(props: { onBack: () => void}) {
-  const [runs, setRuns] = useState<RunResult []>(() => loadRuns());
+function HistoryScreen(props: { onBack: () => void }) {
+  const [runs, setRuns] = useState<RunResult[]>(() => loadRuns());
   const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
   const last10 = runs.slice(0, 10);
   const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpm, 0) / last10.length : 0;
@@ -689,11 +718,11 @@ function HistoryScreen(props: { onBack: () => void}) {
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <div className="cardLabel" style={{ marginBottom: 8 }}>Accuracy trend</div>
+          <div className="cardLabel" style={{ marginBottom: 8 }}>Wpm trend</div>
           <WpmMiniChart values={wpms} />
         </div>
 
-        <div style={{ marginTop: 16}}>
+        <div style={{ marginTop: 16 }}>
           <div className="cardLabel" style={{ marginBottom: 8 }}>Recent runs</div>
           <div className="runList">
             {runs.slice(0, 12).map((r) => (
@@ -705,7 +734,7 @@ function HistoryScreen(props: { onBack: () => void}) {
                   </div>
                 </div>
                 <div className="runPrompt">{r.prompt}</div>
-              </div> 
+              </div>
             ))}
             {runs.length === 0 && (
               <div className="cardLabel">No runs yet. Do a training run first.</div>
@@ -713,7 +742,7 @@ function HistoryScreen(props: { onBack: () => void}) {
           </div>
         </div>
 
-        <div className="row center" style={{ marginTop: 18}}>
+        <div className="row center" style={{ marginTop: 18 }}>
           <button className="btn" onClick={props.onBack}>Back</button>
           <button
             className="btn"
@@ -739,7 +768,7 @@ function WpmMiniChart(props: { values: number[] }) {
   const padT = 16;
   const padB = 28;
 
-  if(values.length < 2) {
+  if (values.length < 2) {
     return (
       <div className="card">
         <div className="cardLabel">Not enough runs yet.</div>
@@ -764,7 +793,7 @@ function WpmMiniChart(props: { values: number[] }) {
   const yTicks = 5;
 
   return (
-    <div className="card" style={{ minWidth: 0}}>
+    <div className="card" style={{ minWidth: 0 }}>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="220">
         {Array.from({ length: yTicks + 1 }).map((_, i) => {
           const frac = i / yTicks;
@@ -791,7 +820,7 @@ function WpmMiniChart(props: { values: number[] }) {
         {values.map((v, i) => (
           <circle key={i} cx={toX(i)} cy={toY(v)} r="4" fill="currentColor" opacity="0.9" />
         ))}
-        <text  x={14} y ={(y0 + y1) / 2} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.75"
+        <text x={14} y={(y0 + y1) / 2} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.75"
           transform={`rotate(-90 14 ${(y0 + y1) / 2})`}
         >
           WPM
@@ -801,9 +830,9 @@ function WpmMiniChart(props: { values: number[] }) {
   );
 }
 
-function ProfileScreen(props: { onBack: () => void}) {
+function ProfileScreen(props: { onBack: () => void }) {
   const [name, setName] = useState(() => loadProfile().displayName);
-  
+
   const [runs, setRuns] = useState<RunResult[]>(() => loadRuns());
 
   useEffect(() => {
@@ -815,7 +844,7 @@ function ProfileScreen(props: { onBack: () => void}) {
       saveProfile({ displayName: name.trim() || DEFAULT_PROFILE.displayName });
     }, 400);
     return () => window.clearTimeout(id);
-  })
+  }, [name]);
 
   const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
   const last10 = runs.slice(0, 10);
@@ -827,7 +856,7 @@ function ProfileScreen(props: { onBack: () => void}) {
       <div className="container">
         <h1 className="title">Profile</h1>
 
-        <div className="card" style={{ minWidth: 0}}>
+        <div className="card" style={{ minWidth: 0 }}>
           <div className="cardLabel" style={{ marginBottom: 6 }}>Display name</div>
           <input
             className="input"
