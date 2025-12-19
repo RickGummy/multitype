@@ -244,6 +244,11 @@ export default function App() {
     setTimeout(() => typeAreaRef.current?.focus(), 0);
   }
 
+  function goHome() {
+    resetSamePrompt();
+    setScreen("home");
+  }
+
   function recordMistake() {
     const start = startedAtRef.current;
     if (start == null) {
@@ -331,6 +336,7 @@ export default function App() {
         onRetry={resetSamePrompt}
         onNextPrompt={nextPrompt}
         onHistory={() => setScreen("history")}
+        onBack={() => setScreen("home")}
       />
     );
   }
@@ -377,6 +383,7 @@ export default function App() {
         <div className="container">
           <h1 className="title">Multitype</h1>
           <div className="row center" style={{ marginBottom: 12 }}>
+
             {[10, 20, 50, 100].map((n) => (
               <button
                 key={n}
@@ -442,6 +449,17 @@ export default function App() {
               })}
             </div>
           </div>
+          <div className="row center" style={{ marginTop: 14}}>
+            <button
+              className="btn"
+              onClick={() => {
+                resetSamePrompt();
+                setScreen("home");
+              }}
+            >
+              Back
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -469,6 +487,7 @@ function StatsScreen(props: {
   onRetry: () => void
   onNextPrompt: () => void;
   onHistory: () => void;
+  onBack: () => void;
 }) {
   const { stats, samples, mistakeSeconds } = props;
 
