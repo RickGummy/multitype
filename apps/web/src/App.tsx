@@ -227,10 +227,11 @@ export default function App() {
   }
 
   function recordMistake() {
-    if (startedAt == null) {
+    const start = startedAtRef.current;
+    if (start == null) {
       return;
     }
-    const sec = Math.max(1, Math.floor((nowMs() - startedAt) / 1000));
+    const sec = Math.max(1, Math.floor((nowMs() - start) / 1000));
     setMistakeSeconds((prev) => (prev.includes(sec) ? prev : [...prev, sec]));
   }
 
@@ -271,7 +272,7 @@ export default function App() {
 
     const isPrintable = e.key.length === 1;
 
-    if (startedAtRef.current == null && (isPrintable || e.key === "Backspace")) {
+    if (startedAtRef.current == null && isPrintable) {
       const start = nowMs();
       setStartedAt(start);
       startedAtRef.current = start;
