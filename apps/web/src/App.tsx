@@ -1,11 +1,15 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import './App.css'
 
-const PROMPTS = [
-  "The quick brown fox jumps over the lazy dog. Practice makes Progress!",
-  "My mathematics final grade just came out and I got a score that I didn't expect, 28.75 / 32 instead of what I thought I would get.",
-  "Hopefully my EECS 281 and EECS 370 grades are like my Math 425 grade where I thought I did worse than I actually did",
+const WORDS = [
+  "the","of","and","to","a","in","is","you","that","it","he","was","for","on","are","as","with","his","they","i",
+  "at","be","this","have","from","or","one","had","by","word","but","not","what","all","were","we","when","your",
+  "can","said","there","use","an","each","which","she","do","how","their","if","will","up","other","about","out",
+  "many","then","them","these","so","some","her","would","make","like","him","into","time","has","look","two",
+  "more","write","go","see","number","no","way","could","people","my","than","first","water","been","call","who",
+  "oil","its","now","find","long","down","day","did","get","come","made","may","part"
 ];
+
 
 function nowMs() {
   return performance.now();
@@ -34,6 +38,8 @@ type RunResult = {
 type Profile = {
   displayName: string;
 }
+
+type WordCount = 10 | 20 | 50 | 100;
 
 const RUN_KEYS = "multitype:runs:v1";
 const PROFILE_KEY = "multitype:profile:v1";
@@ -95,9 +101,21 @@ function uid() {
   return `${Date.now()} - ${Math.random().toString(16).slice(2)}`;
 }
 
+function pickWord() {
+  return WORDS[Math.floor(Math.random() * WORDS.length)];
+}
+
+function generatePrompt(wordCount: WordCount) {
+  const out: string[] = [];
+  for(let i = 0; i < wordCount; i++) {
+    out.push(pickWord());
+  }
+  return out.join(" ");
+}
+
 export default function App() {
-  const [promptIndex, setPromptIndex] = useState(0);
-  const prompt = PROMPTS[promptIndex];
+  const [wordCount, setWordCount] = useState<WordCount>(20);
+  const [prompt, setPrompt] = useState(() => generatePrompt(20));
 
   const [input, setInput] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -125,7 +143,7 @@ export default function App() {
 
   useEffect(() => {
     typeAreaRef.current?.focus();
-  }, [promptIndex]);
+  }, [prompt]);
 
   const stats: Stats | null = useMemo(() => {
     if (startedAt == null) {
@@ -217,7 +235,7 @@ export default function App() {
   }
 
   function nextPrompt() {
-    setPromptIndex((i) => (i + 1) % PROMPTS.length);
+    setPrompt(generatePrompt(wordCount));
     setInput("");
     setStartedAt(null);
     setEndedAt(null);
@@ -358,6 +376,25 @@ export default function App() {
       <div className="page">
         <div className="container">
           <h1 className="title">Multitype</h1>
+          <div className="row center" style={{ marginBottom: 12 }}>
+            {[10, 20, 50, 100].map((n) => (
+              <button
+                key={n}
+                className="btn"
+                onClick={() => {
+                  const wc = n as WordCount;
+                  setWordCount(wc);
+                  setPrompt(generatePrompt(wc));
+                  resetSamePrompt();
+                }}
+                style={{
+                  opacity: wordCount === n ? 1 : 0.7,
+                }}
+              >
+                {n} words
+              </button>
+            ))}
+          </div>
           <div
             ref={typeAreaRef}
             tabIndex={0}
