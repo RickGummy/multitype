@@ -1,16 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useLayoutEffect } from 'react'
 import './App.css'
 
-const WORDS = [
-  "the","of","and","to","a","in","is","you","that","it","he","was","for","on","are","as","with","his","they",
-  "at","be","this","have","from","or","one","had","by","word","but","not","what","all","were","we","when","your",
-  "can","said","there","use","an","each","which","she","do","how","their","if","will","up","other","about","out",
-  "many","then","them","these","so","some","her","would","make","like","him","into","time","has","look","two",
-  "more","write","go","see","number","no","way","could","people","my","than","first","water","been","call","who",
-  "oil","its","now","find","long","down","day","did","get","come","made","may","part"
-];
-
-
 function nowMs() {
   return performance.now();
 }
@@ -40,6 +30,8 @@ type Profile = {
 }
 
 type WordCount = 10 | 20 | 50 | 100;
+
+type WordListMode = "short" | "medium" | "long" | "mixed";
 
 const RUN_KEYS = "multitype:runs:v1";
 const PROFILE_KEY = "multitype:profile:v1";
@@ -101,21 +93,21 @@ function uid() {
   return `${Date.now()} - ${Math.random().toString(16).slice(2)}`;
 }
 
-function pickWord() {
-  return WORDS[Math.floor(Math.random() * WORDS.length)];
+function pickWord(list: string[]) {
+  return list[Math.floor(Math.random() * list.length)];
 }
 
-function generatePrompt(wordCount: WordCount) {
+function generatePromptFromList(list: string[], wordCount: WordCount) {
   const out: string[] = [];
-  for(let i = 0; i < wordCount; i++) {
-    out.push(pickWord());
+  for (let i = 0; i < wordCount; i++) {
+    out.push(pickWord(list));
   }
   return out.join(" ");
 }
 
 export default function App() {
   const [wordCount, setWordCount] = useState<WordCount>(20);
-  const [prompt, setPrompt] = useState(() => generatePrompt(20));
+  const [prompt, setPrompt] = useState("");
 
   const [input, setInput] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -128,9 +120,9 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
 
   const promptBoxRef = useRef<HTMLDivElement | null>(null);
-  const [caret, setCaret] = useState({ x: 0, y: 0, h: 22});
+  const [caret, setCaret] = useState({ x: 0, y: 0, h: 22 });
 
-  const done = screen === "training" && input.length >= prompt.length;
+  const done = screen === "training" && prompt.length > 0 && input.length >= prompt.length;
 
   const typeAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -138,6 +130,10 @@ export default function App() {
 
   const [isTyping, setIsTyping] = useState(false);
   const typingTimerRef = useRef<number | null>(null);
+
+  const [wordListMode, setWordListMode] = useState<WordListMode>("short");
+  const [wordLists, setWordLists] = useState<Record<WordListMode, string[]> | null>(null);
+
 
   useEffect(() => {
     startedAtRef.current = startedAt;
@@ -212,7 +208,7 @@ export default function App() {
       }
 
       const start = startedAtRef.current;
-      if(start == null) {
+      if (start == null) {
         return;
       }
       const elapsedMs = Math.max(1, nowMs() - start);
@@ -232,19 +228,19 @@ export default function App() {
   }, [startedAt, endedAt]);
 
   useLayoutEffect(() => {
-    if(screen !== "training") {
+    if (screen !== "training") {
       return;
     }
-     const update = () => {
+    const update = () => {
       const box = promptBoxRef.current;
-      if(!box) {
+      if (!box) {
         return;
       }
 
       const idx = Math.min(input.length, prompt.length);
 
       const el = box.querySelector<HTMLSpanElement>(`span[data-i="${idx}"]`);
-      if(!el) {
+      if (!el) {
         return;
       }
 
@@ -255,27 +251,27 @@ export default function App() {
       const y = r.top - boxRect.top;
       const h = r.height;
 
-      setCaret({ x, y, h});
-     };
+      setCaret({ x, y, h });
+    };
 
-     update();
+    update();
 
-     const raf = requestAnimationFrame(update);
+    const raf = requestAnimationFrame(update);
 
-     window.addEventListener("resize", update);
+    window.addEventListener("resize", update);
 
-     return() => {
+    return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", update);
-     };
+    };
   }, [input.length, prompt, screen]);
 
   useEffect(() => {
-    if(screen !== "training") {
+    if (screen !== "training") {
       return;
     }
     setIsTyping(true);
-    if(typingTimerRef.current) {
+    if (typingTimerRef.current) {
       window.clearTimeout(typingTimerRef.current);
     }
 
@@ -284,11 +280,24 @@ export default function App() {
     }, 200);
 
     return () => {
-      if(typingTimerRef.current) {
+      if (typingTimerRef.current) {
         window.clearTimeout(typingTimerRef.current);
       }
     };
   }, [input.length, screen]);
+
+  useEffect(() => {
+    if (!wordLists) {
+      return;
+    }
+
+    const list = wordLists[wordListMode];
+    if (!list || list.length === 0) {
+      return;
+    }
+    setPrompt(generatePromptFromList(list, wordCount));
+    resetSamePrompt();
+  }, [wordLists, wordListMode, wordCount]);
 
   function resetSamePrompt() {
     setInput("");
@@ -301,13 +310,17 @@ export default function App() {
   }
 
   function nextPrompt() {
-    setPrompt(generatePrompt(wordCount));
-    setInput("");
-    setStartedAt(null);
-    setEndedAt(null);
-    setSamples([]);
-    setMistakeSeconds([]);
-    setTimeout(() => typeAreaRef.current?.focus(), 0);
+    if (!wordLists) {
+      return;
+    }
+
+    const list = wordLists[wordListMode];
+    if (!list || list.length === 0) {
+      return;
+    }
+
+    setPrompt(generatePromptFromList(list, wordCount));
+    resetSamePrompt();
   }
 
   function recordMistake() {
@@ -332,7 +345,7 @@ export default function App() {
 
     setSamples((prev) => {
       const last = prev[prev.length - 1];
-      if(last && Math.floor(last.tSec) === Math.floor(tSec)) {
+      if (last && Math.floor(last.tSec) === Math.floor(tSec)) {
         return [...prev.slice(0, -1), { tSec, wpm }];
       }
       return [...prev, { tSec, wpm }];
@@ -358,6 +371,11 @@ export default function App() {
     if (done) {
       return;
     }
+
+    if (!prompt) {
+      return;
+    }
+
     if (e.metaKey || e.ctrlKey || e.altKey) {
       return;
     }
@@ -395,6 +413,52 @@ export default function App() {
       finishRun();
     }
   }
+
+  async function fetchWordList(path: string): Promise<string[]> {
+    const res = await fetch(path);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch ${path}: ${res.status}`);
+    }
+    const text = await res.text();
+    const words = text.split(/\s+/).map(w => w.trim().toLowerCase()).filter(Boolean);
+    return Array.from(new Set(words));
+  }
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [short, medium, long, mixed] = await Promise.all([
+          fetchWordList("/short.txt"),
+          fetchWordList("/medium.txt"),
+          fetchWordList("/long.txt"),
+          fetchWordList("/mixed.txt"),
+        ]);
+
+        if (!alive) {
+          return;
+        }
+
+        setWordLists({
+          short,
+          medium,
+          long,
+          mixed,
+        });
+      }
+      catch (e) {
+        console.error(e);
+        if (!alive) {
+          return;
+        }
+        setWordLists({ short: [], medium: [], long: [], mixed: [] });
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   if (screen === "training" && done && stats) {
     return (
@@ -453,16 +517,34 @@ export default function App() {
       <div className="page">
         <div className="container">
           <h1 className="title">Multitype</h1>
+
           <div className="row center" style={{ marginBottom: 12 }}>
+            {(["short", "medium", "long", "mixed"] as WordListMode[]).map((m) => (
+              <button
+                key={m}
+                className="btn"
+                onClick={() => {  
+                  setWordListMode(m);
+                }}
+                style={{ opacity: wordListMode === m ? 1 : 0.7 }}
+                disabled={!wordLists}
+              >
+                {m}
+              </button>
+            ))}
 
             {[10, 20, 50, 100].map((n) => (
               <button
                 key={n}
                 className="btn"
                 onClick={() => {
+                  if (!wordLists) {
+                    return;
+                  }
                   const wc = n as WordCount;
+                  const list = wordLists[wordListMode];
                   setWordCount(wc);
-                  setPrompt(generatePrompt(wc));
+                  setPrompt(generatePromptFromList(list, wc));
                   resetSamePrompt();
                 }}
                 style={{
@@ -473,6 +555,9 @@ export default function App() {
               </button>
             ))}
           </div>
+
+
+
           <div
             ref={typeAreaRef}
             tabIndex={0}
@@ -480,9 +565,9 @@ export default function App() {
             onKeyDown={onKeyDown}
             onClick={() => typeAreaRef.current?.focus()}
           >
-            
+
             <div className="promptBox" ref={promptBoxRef}>
-              
+
 
               <div
                 className={`cursorCaret ${isTyping ? "typing" : "idle"}`}
@@ -558,7 +643,7 @@ export default function App() {
                       */
                     })}
                   </span>
-                  
+
                 );
               })}
               <span data-i={prompt.length} className="promptChar">
@@ -567,7 +652,7 @@ export default function App() {
 
             </div>
           </div>
-          <div className="row center" style={{ marginTop: 14}}>
+          <div className="row center" style={{ marginTop: 14 }}>
             <button
               className="btn"
               onClick={() => {
