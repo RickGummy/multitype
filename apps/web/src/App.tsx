@@ -1,8 +1,8 @@
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useLayoutEffect } from 'react'
 import './App.css'
 
 const WORDS = [
-  "the","of","and","to","a","in","is","you","that","it","he","was","for","on","are","as","with","his","they","i",
+  "the","of","and","to","a","in","is","you","that","it","he","was","for","on","are","as","with","his","they",
   "at","be","this","have","from","or","one","had","by","word","but","not","what","all","were","we","when","your",
   "can","said","there","use","an","each","which","she","do","how","their","if","will","up","other","about","out",
   "many","then","them","these","so","some","her","would","make","like","him","into","time","has","look","two",
@@ -127,11 +127,18 @@ export default function App() {
 
   const [screen, setScreen] = useState<Screen>("home");
 
+  const promptBoxRef = useRef<HTMLDivElement | null>(null);
+  const [caret, setCaret] = useState({ x: 0, y: 0, h: 22});
+
   const done = screen === "training" && input.length >= prompt.length;
 
   const typeAreaRef = useRef<HTMLDivElement | null>(null);
 
   const startedAtRef = useRef<number | null>(null);
+
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     startedAtRef.current = startedAt;
   }, [startedAt]);
@@ -224,6 +231,65 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [startedAt, endedAt]);
 
+  useLayoutEffect(() => {
+    if(screen !== "training") {
+      return;
+    }
+     const update = () => {
+      const box = promptBoxRef.current;
+      if(!box) {
+        return;
+      }
+
+      const idx = Math.min(input.length, prompt.length);
+
+      const el = box.querySelector<HTMLSpanElement>(`span[data-i="${idx}"]`);
+      if(!el) {
+        return;
+      }
+
+      const boxRect = box.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+
+      const x = r.left - boxRect.left;
+      const y = r.top - boxRect.top;
+      const h = r.height;
+
+      setCaret({ x, y, h});
+     };
+
+     update();
+
+     const raf = requestAnimationFrame(update);
+
+     window.addEventListener("resize", update);
+
+     return() => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", update);
+     };
+  }, [input.length, prompt, screen]);
+
+  useEffect(() => {
+    if(screen !== "training") {
+      return;
+    }
+    setIsTyping(true);
+    if(typingTimerRef.current) {
+      window.clearTimeout(typingTimerRef.current);
+    }
+
+    typingTimerRef.current = window.setTimeout(() => {
+      setIsTyping(false);
+    }, 200);
+
+    return () => {
+      if(typingTimerRef.current) {
+        window.clearTimeout(typingTimerRef.current);
+      }
+    };
+  }, [input.length, screen]);
+
   function resetSamePrompt() {
     setInput("");
     setStartedAt(null);
@@ -244,11 +310,6 @@ export default function App() {
     setTimeout(() => typeAreaRef.current?.focus(), 0);
   }
 
-  function goHome() {
-    resetSamePrompt();
-    setScreen("home");
-  }
-
   function recordMistake() {
     const start = startedAtRef.current;
     if (start == null) {
@@ -264,10 +325,18 @@ export default function App() {
 
     const start = startedAtRef.current ?? end;
     const elapsedMs = Math.max(1, end - start);
+    const tSec = elapsedMs / 1000;
+
     const minutes = elapsedMs / 60000;
     const wpm = minutes === 0 ? 0 : (prompt.length / 5) / minutes;
 
-    setSamples((prev) => [...prev, { tSec: elapsedMs / 1000, wpm }]);
+    setSamples((prev) => {
+      const last = prev[prev.length - 1];
+      if(last && Math.floor(last.tSec) === Math.floor(tSec)) {
+        return [...prev.slice(0, -1), { tSec, wpm }];
+      }
+      return [...prev, { tSec, wpm }];
+    })
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -378,6 +447,8 @@ export default function App() {
   }
 
   if (screen == "training") {
+    const CARET_SCALE = 0.6;
+    const caretH = Math.max(12, caret.h * CARET_SCALE);
     return (
       <div className="page">
         <div className="container">
@@ -409,13 +480,43 @@ export default function App() {
             onKeyDown={onKeyDown}
             onClick={() => typeAreaRef.current?.focus()}
           >
-            <div className="promptBox">
+            
+            <div className="promptBox" ref={promptBoxRef}>
+              
+
+              <div
+                className={`cursorCaret ${isTyping ? "typing" : "idle"}`}
+                style={{
+                  transform: `translate(${caret.x}px, ${caret.y + (caret.h - caretH) / 2}px)`,
+                  height: `${caretH}px`,
+                }}
+              />
+
               {prompt.split(/(\s+)/).map((token, tokenIdx) => {
                 const isSpace = /^\s+$/.test(token);
                 if (isSpace) {
+                  const start = prompt.split(/(\s+)/).slice(0, tokenIdx).join("").length;
                   return (
                     <span key={`s-${tokenIdx}`} className="space">
-                      {token.replace(/ /g, "\u00A0")}
+                      {token.split("").map((ch, j) => {
+                        const i = start + j;
+                        const typed = input[i];
+                        const isTyped = typed !== undefined;
+                        const isCorrect = isTyped && typed === ch;
+
+                        const cls = [
+                          "promptChar",
+                          !isTyped ? "untyped" : "",
+                          isTyped && isCorrect ? "correct" : "",
+                          isTyped && !isCorrect ? "wrong" : "",
+                        ].join(" ");
+
+                        return (
+                          <span key={i} data-i={i} className={cls}>
+                            {"\u00A0"}
+                          </span>
+                        );
+                      })}
                     </span>
                   );
                 }
@@ -429,8 +530,19 @@ export default function App() {
                       const typed = input[i];
                       const isTyped = typed !== undefined;
                       const isCorrect = isTyped && typed == ch;
-                      const isCursor = i === input.length;
+                      const cls = [
+                        "promptChar",
+                        !isTyped ? "untyped" : "",
+                        isTyped && isCorrect ? "correct" : "",
+                        isTyped && !isCorrect ? "wrong" : "",
+                      ].join(" ");
+
                       return (
+                        <span key={i} data-i={i} className={cls}>
+                          {ch === " " ? "\u00A0" : ch}
+                        </span>
+                      );
+                      /*return (
                         <span key={i}
                           className={[
                             "promptChar",
@@ -443,10 +555,16 @@ export default function App() {
                           {ch}
                         </span>
                       );
+                      */
                     })}
                   </span>
+                  
                 );
               })}
+              <span data-i={prompt.length} className="promptChar">
+                {"\u00A0"}
+              </span>
+
             </div>
           </div>
           <div className="row center" style={{ marginTop: 14}}>
