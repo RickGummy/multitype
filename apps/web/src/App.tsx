@@ -33,6 +33,13 @@ type WordCount = 10 | 20 | 50 | 100;
 
 type WordListMode = "short" | "medium" | "long" | "mixed";
 
+type ContentMode = "words" | "passage";
+
+type Toggles = {
+  punctuation: boolean;
+  numbers: boolean;
+}
+
 const RUN_KEYS = "multitype:runs:v1";
 const PROFILE_KEY = "multitype:profile:v1";
 
@@ -133,6 +140,15 @@ export default function App() {
 
   const [wordListMode, setWordListMode] = useState<WordListMode>("short");
   const [wordLists, setWordLists] = useState<Record<WordListMode, string[]> | null>(null);
+
+  const [contentMode, setContentMode] = useState<ContentMode>("words");
+  const [toggles, setToggles] = useState<Toggles>({
+    punctuation: false,
+    numbers: false,
+  });
+
+  const [passages, setPassages] = useState<string[]>([]);
+  const [passageIndex, setPassageIndex] = useState(0);
 
 
   useEffect(() => {
@@ -299,6 +315,64 @@ export default function App() {
     resetSamePrompt();
   }, [wordLists, wordListMode, wordCount]);
 
+  useEffect(() => {
+    const next = regeneratePrompt(
+      wordLists,
+      wordListMode,
+      wordCount,
+      contentMode,
+      passages,
+      passageIndex,
+      toggles
+    );
+
+    setPrompt(next);
+    resetSamePrompt();
+  }, [wordLists, wordListMode, wordCount, contentMode, passages, passageIndex, toggles.punctuation, toggles.numbers]);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const res = await fetch("/quotes.json");
+        if (!res.ok) {
+          throw new Error(`Failed quotes.json: ${res.status}`);
+        }
+        const data: unknown = await res.json();
+        if (!alive) {
+          return;
+        }
+        if(!Array.isArray(data)) {
+          setPassages([]);
+          return;
+        }
+
+        const list = data
+          .map((q: any) => (typeof q?.text === "string" ? q.text.trim() : ""))
+          .filter(Boolean);
+
+        setPassages(list);
+        /*
+        if(list.length) {
+          setPassageIndex(0);
+        }
+        */
+      }
+      catch (e) {
+        console.error(e);
+        if(!alive) {
+          return;
+        }
+        setPassages([]);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   function resetSamePrompt() {
     setInput("");
     setStartedAt(null);
@@ -310,16 +384,21 @@ export default function App() {
   }
 
   function nextPrompt() {
-    if (!wordLists) {
+    if (contentMode === "passage") {
+      setPassageIndex((p) => {
+        if(!passages.length) {
+          return p;
+        }
+        let next = p;
+        while (passages.length > 1 && next === p) {
+          next = Math.floor(Math.random() * passages.length);
+        }
+        return next;
+      });
       return;
     }
 
-    const list = wordLists[wordListMode];
-    if (!list || list.length === 0) {
-      return;
-    }
-
-    setPrompt(generatePromptFromList(list, wordCount));
+    setPrompt(regeneratePrompt(wordLists, wordListMode, wordCount, contentMode, passages, passageIndex, toggles));
     resetSamePrompt();
   }
 
@@ -412,6 +491,57 @@ export default function App() {
     if (next.length >= prompt.length && startedAtRef.current != null) {
       finishRun();
     }
+  }
+
+  function applyTogglesToText(text: string, t: Toggles) {
+    let out = text;
+
+    if (!t.numbers) {
+      out = out.replace(/[0-9]/g, "");
+    }
+
+    if (!t.punctuation) {
+      out = out.replace(/[^\p{L}\p{N}\s]/gu, "");
+    }
+
+    out = out.replace(/\s+/g, " ").trim();
+    return out;
+  }
+
+  function generateWordsPrompt(list: string[], wordCount: WordCount, t: Toggles) {
+    const out: string[] = [];
+    for (let i = 0; i < wordCount; i++) {
+      out.push(pickWord(list));
+    }
+
+    return applyTogglesToText(out.join(" "), t);
+  }
+
+  function generatePassagePrompt(passages: string[], idx: number, t: Toggles) {
+    if (!passages.length) {
+      return "";
+    }
+    return applyTogglesToText(passages[idx % passages.length], t);
+  }
+
+  function regeneratePrompt(
+    wordLists: Record<WordListMode, string[]> | null,
+    wordListMode: WordListMode,
+    wordCount: WordCount,
+    contentMode: ContentMode,
+    passages: string[],
+    passageIndex: number,
+    toggles: Toggles
+  ) {
+    if (contentMode === "passage") {
+      return generatePassagePrompt(passages, passageIndex, toggles);
+    }
+
+    const list = wordLists?.[wordListMode] ?? [];
+    if (!list.length) {
+      return "";
+    }
+    return generateWordsPrompt(list, wordCount, toggles);
   }
 
   async function fetchWordList(path: string): Promise<string[]> {
@@ -517,7 +647,7 @@ export default function App() {
       <div className="page">
         <div className="container">
           <h1 className="title">Multitype</h1>
-
+          {/**
           <div className="row center" style={{ marginBottom: 12 }}>
             {(["short", "medium", "long", "mixed"] as WordListMode[]).map((m) => (
               <button
@@ -555,8 +685,87 @@ export default function App() {
               </button>
             ))}
           </div>
+          */}
 
+          <div className="settingsCard">
+            <div className="settingsRow">
+              <div className="segmented">
+                <button
+                  className={`segBtn ${contentMode === "words" ? "active" : ""}`}
+                  onClick={() => setContentMode("words")}
+                >
+                  Words
+                </button>
+                <button
+                  className={`segBtn ${contentMode === "passage" ? "active" : ""}`}
+                  onClick={() => {
+                    setContentMode("passage");
+                    if(passages.length) {
+                      setPassageIndex(Math.floor(Math.random() * passages.length));
+                    }
+                  }}
+                >
+                  Passage
+                </button>
+              </div>
 
+              <div className="toggleGroup">
+                <button
+                  className={`toggleBtn ${toggles.punctuation ? "on" : ""}`}
+                  onClick={() => setToggles((t) => ({ ...t, punctuation: !t.punctuation }))}
+                >
+                  Punctuation: {toggles.punctuation ? "On" : "Off"}
+                </button>
+
+                <button
+                  className={`toggleBtn ${toggles.numbers ? "on" : ""}`}
+                  onClick={() => setToggles((t) => ({ ...t, numbers: !t.numbers }))}
+                >
+                  Numbers: {toggles.numbers ? "On" : "Off"}
+                </button>
+              </div>
+            </div>
+
+            {contentMode === "words" && (
+              <div className="settingsRow">
+                <div className="pillRow">
+                  {(["short", "medium", "long", "mixed"] as WordListMode[]).map((m) => (
+                    <button
+                      key={m}
+                      className={`pill ${wordListMode === m ? "active" : ""}`}
+                      onClick={() => setWordListMode(m)}
+                      disabled={!wordLists}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pillRow">
+                  {[10, 20, 50, 100].map((n) => (
+                    <button
+                      key={n}
+                      className={`pill ${wordCount === n ? "active" : ""}`}
+                      onClick={() => setWordCount(n as WordCount)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {contentMode === "passage" && (
+              <div className="settingsRow">
+                <div className="mutedSmall">
+                  Passage {passages.length ? (passageIndex + 1) : 0} / {passages.length}
+                </div>
+                <button className="btn" onClick={() => setPassageIndex((p) => p + 1)} disabled={!passages.length}>
+                  Next passage
+                </button>
+              </div>
+            )}
+          </div>
 
           <div
             ref={typeAreaRef}
@@ -567,8 +776,6 @@ export default function App() {
           >
 
             <div className="promptBox" ref={promptBoxRef}>
-
-
               <div
                 className={`cursorCaret ${isTyping ? "typing" : "idle"}`}
                 style={{
@@ -577,44 +784,39 @@ export default function App() {
                 }}
               />
 
-              {prompt.split(/(\s+)/).map((token, tokenIdx) => {
-                const isSpace = /^\s+$/.test(token);
-                if (isSpace) {
-                  const start = prompt.split(/(\s+)/).slice(0, tokenIdx).join("").length;
-                  return (
-                    <span key={`s-${tokenIdx}`} className="space">
-                      {token.split("").map((ch, j) => {
-                        const i = start + j;
-                        const typed = input[i];
-                        const isTyped = typed !== undefined;
-                        const isCorrect = isTyped && typed === ch;
+              {prompt.split(" ").map((word, wi, arr) => {
 
-                        const cls = [
-                          "promptChar",
-                          !isTyped ? "untyped" : "",
-                          isTyped && isCorrect ? "correct" : "",
-                          isTyped && !isCorrect ? "wrong" : "",
-                        ].join(" ");
-
-                        return (
-                          <span key={i} data-i={i} className={cls}>
-                            {"\u00A0"}
-                          </span>
-                        );
-                      })}
-                    </span>
-                  );
-                }
-
-                const start = prompt.split(/(\s+)/).slice(0, tokenIdx).join("").length;
+                const start = arr.slice(0, wi).join(" ").length + (wi > 0 ? 1 : 0);
+                const isLast = wi === arr.length - 1;
 
                 return (
-                  <span key={`w-${tokenIdx}`} className="word">
-                    {token.split("").map((ch, j) => {
+                  <span key={wi} className="word">
+                    {word.split("").map((ch, j) => {
                       const i = start + j;
                       const typed = input[i];
                       const isTyped = typed !== undefined;
-                      const isCorrect = isTyped && typed == ch;
+                      const isCorrect = isTyped && typed === ch;
+
+                      const cls = [
+                        "promptChar",
+                        !isTyped ? "untyped" : "",
+                        isTyped && isCorrect ? "correct" : "",
+                        isTyped && !isCorrect ? "wrong" : "",
+                      ].join (" ");
+
+                      return (
+                        <span key={i} data-i={i} className={cls}>
+                          {ch}
+                        </span>
+                      );
+                    })}
+
+                    {!isLast && (() => {
+                      const i = start + word.length;
+                      const typed = input[i];
+                      const isTyped = typed !== undefined;
+                      const isCorrect = isTyped && typed === " ";
+
                       const cls = [
                         "promptChar",
                         !isTyped ? "untyped" : "",
@@ -623,27 +825,12 @@ export default function App() {
                       ].join(" ");
 
                       return (
-                        <span key={i} data-i={i} className={cls}>
-                          {ch === " " ? "\u00A0" : ch}
+                        <span key={`sp-${i}`} data-i={i} className={cls}>
+                          {"\u00A0"}
                         </span>
                       );
-                      /*return (
-                        <span key={i}
-                          className={[
-                            "promptChar",
-                            !isTyped ? "untyped" : "",
-                            isTyped && isCorrect ? "correct" : "",
-                            isTyped && !isCorrect ? "wrong" : "",
-                            isCursor ? "cursor" : "",
-                          ].join(" ")}
-                        >
-                          {ch}
-                        </span>
-                      );
-                      */
-                    })}
+                    })()}
                   </span>
-
                 );
               })}
               <span data-i={prompt.length} className="promptChar">
