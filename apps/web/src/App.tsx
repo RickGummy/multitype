@@ -11,7 +11,7 @@ type Stats = {
   elapsedMs: number
 };
 
-type Sample = { tSec: number; wpm: number };
+type Sample = { tSec: number; rawWpm: number; corrWpm: number };
 
 type Screen = "home" | "training" | "multiplayer" | "bots" | "history" | "profile";
 
@@ -20,7 +20,8 @@ type RunResult = {
   mode: "training";
   prompt: string;
   endedAtIso: string;
-  wpm: number;
+  wpmRaw: number;
+  wpmCorr: number;
   accuracy: number;
   elapsedMs: number;
 };
@@ -47,6 +48,43 @@ const DEFAULT_PROFILE: Profile = {
   displayName: "Rick",
 };
 
+function normalizeRun(x: any): RunResult | null {
+  if(!x || typeof x !== "object") {
+    return null;
+  }
+
+  const wpmCorr =
+    typeof x.wpmCorr === "number" ? x.wpmCorr :
+    typeof x.wpm === "number" ? x.wpm :
+    null;
+  
+  const wpmRaw = 
+    typeof x.wpmRaw === "number" ? x.wpmRaw :
+    typeof x.wpm === "number" ? x.wpm : 
+    null;
+  
+  const accuracy = typeof x.accuracy === "number" ? x.accuracy : null;
+  const elapsedMs = typeof x.elapsedMs === "number" ? x.elapsedMs : null;
+  const id = typeof x.id === "string" && x.id ? x.id : null;
+  const prompt = typeof x.prompt === "string" ? x.prompt :  "";
+  const endedAtIso = typeof x.endedAtIso === "string" ? x.endedAtIso : new Date().toISOString();
+
+  if(id == null || wpmCorr == null || wpmRaw == null || accuracy == null || elapsedMs == null) {
+    return null;
+  }
+
+  return {
+    id,
+    mode: "training",
+    prompt,
+    endedAtIso,
+    wpmRaw,
+    wpmCorr,
+    accuracy,
+    elapsedMs,
+  };
+}
+
 function loadRuns(): RunResult[] {
   try {
     const raw = localStorage.getItem(RUN_KEYS);
@@ -54,7 +92,14 @@ function loadRuns(): RunResult[] {
       return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if(!Array.isArray(parsed)){
+      return [];
+    }
+
+    const cleaned = parsed.map(normalizeRun).filter((r): r is RunResult => r != null);
+    localStorage.setItem(RUN_KEYS, JSON.stringify(cleaned));
+
+    return cleaned;
   }
   catch {
     return [];
@@ -176,7 +221,8 @@ export default function App() {
 
     const accuracy = input.length === 0 ? 100 : (correct / input.length) * 100;
     const minutes = elapsedMs / 60000;
-    const wpm = minutes === 0 ? 0 : (input.length / 5) / minutes;
+    const correctChars = countCorrectChars(input, prompt);
+    const wpm = minutes === 0 ? 0 : (correctChars / 5) / minutes;
 
     return { wpm, accuracy, elapsedMs };
   }, [input, startedAt, endedAt, prompt]);
@@ -190,7 +236,7 @@ export default function App() {
       const w = words[i];
       out.push({ word: w, start });
       start += w.length;
-      if(i !== words.length) {
+      if(i !== words.length - 1) {
         start += 1;
       }
     }
@@ -207,16 +253,23 @@ export default function App() {
     }
     savedEndRef.current = endedAt;
 
+    const typed = input;
+    const correctChars = countCorrectChars(typed, prompt);
+    const minutes = stats.elapsedMs / 60000;
+    const wpmRaw = minutes === 0 ? 0: (typed.length / 5) / minutes;
+    const wpmCorr = minutes === 0 ? 0 : (correctChars / 5) / minutes;
+
     saveRun({
       id: uid(),
       mode: "training",
       prompt,
       endedAtIso: new Date().toISOString(),
-      wpm: stats.wpm,
+      wpmRaw,
+      wpmCorr,
       accuracy: stats.accuracy,
       elapsedMs: stats.elapsedMs,
     });
-  }, [endedAt, stats, prompt]);
+  }, [endedAt, stats, prompt, input, contentMode, wordListMode, wordCount, toggles.punctuation, toggles.numbers]);
 
   const endedAtRef = useRef<number | null>(null);
   useEffect(() => {
@@ -241,19 +294,24 @@ export default function App() {
       }
       const elapsedMs = Math.max(1, nowMs() - start);
       const minutes = elapsedMs / 60000;
-      const wpm = minutes === 0 ? 0 : (inputRef.current.length / 5) / minutes;
       const tSec = elapsedMs / 1000;
+
+      const typed = inputRef.current;
+      const correctChars = countCorrectChars(typed, prompt);
+
+      const rawWpm = minutes === 0 ? 0 : (typed.length / 5) / minutes;
+      const corrWpm = minutes === 0 ? 0 : (correctChars / 5) / minutes;
 
       setSamples((prev) => {
         const last = prev[prev.length - 1];
         if (last && Math.floor(last.tSec) === Math.floor(tSec)) {
-          return [...prev.slice(0, -1), { tSec, wpm }];
+          return [...prev.slice(0, -1), { tSec, rawWpm, corrWpm }];
         }
-        return [...prev, { tSec, wpm }];
+        return [...prev, { tSec, rawWpm, corrWpm }];
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [startedAt, endedAt]);
+  }, [startedAt, endedAt, prompt]);
 
   useEffect(() => {
     if(screen !== "training") {
@@ -474,14 +532,18 @@ export default function App() {
     const tSec = elapsedMs / 1000;
 
     const minutes = elapsedMs / 60000;
-    const wpm = minutes === 0 ? 0 : (prompt.length / 5) / minutes;
+    const typed = inputRef.current;
+    const correctChars = countCorrectChars(typed, prompt);
+
+    const rawWpm = minutes === 0 ? 0 : (typed.length / 5) / minutes;
+    const corrWpm = minutes === 0 ? 0 : (correctChars / 5) / minutes;
 
     setSamples((prev) => {
       const last = prev[prev.length - 1];
       if (last && Math.floor(last.tSec) === Math.floor(tSec)) {
-        return [...prev.slice(0, -1), { tSec, wpm }];
+        return [...prev.slice(0, -1), { tSec, rawWpm, corrWpm}];
       }
-      return [...prev, { tSec, wpm }];
+      return [...prev, { tSec, rawWpm, corrWpm }];
     })
   }
 
@@ -520,7 +582,7 @@ export default function App() {
       setStartedAt(start);
       startedAtRef.current = start;
       setMistakeSeconds([]);
-      setSamples([{ tSec: 1, wpm: 0 }]);
+      setSamples([{ tSec: 1, rawWpm: 0 , corrWpm: 0 }]);
     }
 
     if (e.key === "Backspace") {
@@ -606,6 +668,17 @@ export default function App() {
     const text = await res.text();
     const words = text.split(/\s+/).map(w => w.trim().toLowerCase()).filter(Boolean);
     return Array.from(new Set(words));
+  }
+
+  function countCorrectChars(typed: string, prompt: string) {
+    let correct = 0;
+    const n = Math.min(typed.length, prompt.length);
+    for(let i = 0 ; i < n; i++) {
+      if(typed[i] === prompt[i]) {
+        correct++;
+      }
+    }
+    return correct;
   }
 
   useEffect(() => {
@@ -999,16 +1072,17 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
 
   const tSpan = Math.max(1, maxT - minT);
 
-  const wpmVals = samples.map((s) => s.wpm);
-  const maxWpm = Math.max(10, ...wpmVals);
-  const minWpm = Math.min(1, ...wpmVals);
-  const span = Math.max(1, maxWpm - minWpm);
-
-
   const x0 = padL;
   const x1 = W - padR;
   const y0 = H - padB;
   const y1 = padT;
+
+  const rawVals = samples.map(s => s.rawWpm);
+  const corrVals = samples.map(s => s.corrWpm);
+  const allVals = [...rawVals, ...corrVals];
+  const maxWpm = Math.max(10, ...allVals);
+  const minWpm = Math.min(1, ...allVals);
+  const span = Math.max(1, maxWpm - minWpm);
 
   const toX = (t: number) => x0 + ((x1 - x0) * (t - minT) / tSpan);
   const toY = (wpm: number) => {
@@ -1016,11 +1090,15 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
     return y0 - (y0 - y1) * norm;
   };
 
-  const poly = samples.map((s) => {
+  const rawPoly = samples.map(s => {
     const t = Math.max(minT, secAt(s.tSec));
-    return `${toX(t)},${toY(s.wpm)}`;
-  })
-    .join(" ");
+    return `${toX(t)},${toY(s.rawWpm)}`;
+  }).join(" ");
+
+  const corrPoly = samples.map(s => {
+    const t = Math.max(minT, secAt(s.tSec));
+    return `${toX(t)},${toY(s.corrWpm)}`;
+  }).join(" ");
 
   const yTicks = 5;
   const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
@@ -1118,12 +1196,21 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
         </text>
 
         <polyline
-          points={poly}
+          points={rawPoly}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          opacity="0.25"
+          
+        />
+        <polyline
+          points={corrPoly}
           fill="none"
           stroke="currentColor"
           strokeWidth="3"
-          opacity="0.9"
+          opacity="0.95"
         />
+
         {samples.map((s, idx) => {
           const sec = Math.max(minT, secAt(s.tSec));
           if (mistakeSet.has(sec)) {
@@ -1133,8 +1220,8 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
             <circle
               key={idx}
               cx={toX(sec)}
-              cy={toY(s.wpm)}
-              r="4"
+              cy={toY(s.corrWpm)}
+              r="3"
               fill="currentColor"
               opacity="0.9"
             />
@@ -1149,7 +1236,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
           }
 
           const x = toX(Math.max(1, sec));
-          const y = toY(s.wpm);
+          const y = toY(s.corrWpm);
           const size = 6;
           return (
             <path
@@ -1203,10 +1290,13 @@ function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "
 
 function HistoryScreen(props: { onBack: () => void }) {
   const [runs, setRuns] = useState<RunResult[]>(() => loadRuns());
-  const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
+  
+  const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpmCorr)) : 0;
   const last10 = runs.slice(0, 10);
-  const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpm, 0) / last10.length : 0;
-  const wpms = runs.slice(0, 20).map(r => r.wpm).reverse();
+  const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpmCorr, 0) / last10.length : 0;
+  const wpms = runs.slice(0, 20).map(r => r.wpmCorr).reverse();
+
+  
 
   return (
     <div className="page">
@@ -1230,9 +1320,9 @@ function HistoryScreen(props: { onBack: () => void }) {
             {runs.slice(0, 12).map((r) => (
               <div key={r.id} className="runRow">
                 <div className="runMain">
-                  <div className="runWpm">{r.wpm.toFixed(1)} WPM</div>
-                  <div className="runMeta">
-                    {r.accuracy.toFixed(1)}% • {(r.elapsedMs / 1000).toFixed(2)}s
+                  <div className="runWpm">
+                    {r.wpmCorr.toFixed(1)} WPM
+                    <span className="mutedSmall"> (raw {r.wpmRaw.toFixed(1)})</span>
                   </div>
                 </div>
                 <div className="runPrompt">{r.prompt}</div>
@@ -1348,9 +1438,9 @@ function ProfileScreen(props: { onBack: () => void }) {
     return () => window.clearTimeout(id);
   }, [name]);
 
-  const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpm)) : 0;
+  const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpmCorr)) : 0;
   const last10 = runs.slice(0, 10);
-  const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpm, 0) / last10.length : 0;
+  const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpmCorr, 0) / last10.length : 0;
   const avgAccLast10 = last10.length ? last10.reduce((s, r) => s + r.accuracy, 0) / last10.length : 0;
 
   return (
