@@ -116,6 +116,8 @@ export default function App() {
   const [wordCount, setWordCount] = useState<WordCount>(20);
   const [prompt, setPrompt] = useState("");
 
+  
+
   const [input, setInput] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [endedAt, setEndedAt] = useState<number | null>(null);
@@ -303,19 +305,6 @@ export default function App() {
   }, [input.length, screen]);
 
   useEffect(() => {
-    if (!wordLists) {
-      return;
-    }
-
-    const list = wordLists[wordListMode];
-    if (!list || list.length === 0) {
-      return;
-    }
-    setPrompt(generatePromptFromList(list, wordCount));
-    resetSamePrompt();
-  }, [wordLists, wordListMode, wordCount]);
-
-  useEffect(() => {
     const next = regeneratePrompt(
       wordLists,
       wordListMode,
@@ -353,11 +342,6 @@ export default function App() {
           .filter(Boolean);
 
         setPassages(list);
-        /*
-        if(list.length) {
-          setPassageIndex(0);
-        }
-        */
       }
       catch (e) {
         console.error(e);
@@ -834,7 +818,7 @@ export default function App() {
                 );
               })}
               <span data-i={prompt.length} className="promptChar">
-                {"\u00A0"}
+                {"\u200B"}
               </span>
 
             </div>
