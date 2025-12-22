@@ -181,6 +181,22 @@ export default function App() {
     return { wpm, accuracy, elapsedMs };
   }, [input, startedAt, endedAt, prompt]);
 
+  const wordsWithStart = useMemo(() => {
+    const words = prompt ? prompt.split(" ") : [];
+    const out: { word: string, start: number}[] = [];
+    let start = 0;
+
+    for(let i = 0; i < words.length; i++) {
+      const w = words[i];
+      out.push({ word: w, start });
+      start += w.length;
+      if(i !== words.length) {
+        start += 1;
+      }
+    }
+    return out;
+  }, [prompt]);
+
   const savedEndRef = useRef<number | null>(null);
   useEffect(() => {
     if (endedAt == null || stats == null) {
@@ -310,6 +326,20 @@ export default function App() {
         }
         return cur;
       })
+
+      const padding = 18;
+      const caretTop = y;
+      const caretBottom = y + h;
+
+      const viewTop = box.scrollTop;
+      const viewBottom = box.scrollTop + box.clientHeight;
+
+      if(caretBottom + padding > viewBottom) {
+        box.scrollTop = caretBottom + padding - box.clientHeight;
+      }
+      else if(caretTop - padding < viewTop) {
+        box.scrollTop = Math.max(0, caretTop - padding);
+      }
     };
 
     update();
@@ -807,11 +837,10 @@ export default function App() {
                   height: `${caretH}px`,
                 }}
               />
-
-              {prompt.split(" ").map((word, wi, arr) => {
-
-                const start = arr.slice(0, wi).join(" ").length + (wi > 0 ? 1 : 0);
-                const isLast = wi === arr.length - 1;
+              
+              
+              {wordsWithStart.map(({ word, start }, wi ) => {
+                const isLast = wi === wordsWithStart.length - 1;
 
                 return (
                   <span key={wi} className="word">
