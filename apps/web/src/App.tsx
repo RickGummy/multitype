@@ -104,19 +104,9 @@ function pickWord(list: string[]) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-function generatePromptFromList(list: string[], wordCount: WordCount) {
-  const out: string[] = [];
-  for (let i = 0; i < wordCount; i++) {
-    out.push(pickWord(list));
-  }
-  return out.join(" ");
-}
-
 export default function App() {
   const [wordCount, setWordCount] = useState<WordCount>(20);
   const [prompt, setPrompt] = useState("");
-
-  
 
   const [input, setInput] = useState("");
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -129,7 +119,11 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
 
   const promptBoxRef = useRef<HTMLDivElement | null>(null);
+
   const [caret, setCaret] = useState({ x: 0, y: 0, h: 22 });
+  const caretTargetRef = useRef({ x: 0, y: 0, h: 22});
+  const rafRef = useRef<number | null>(null);
+  const lastFrameRef = useRef<number>(0);
 
   const done = screen === "training" && prompt.length > 0 && input.length >= prompt.length;
 
@@ -245,6 +239,43 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [startedAt, endedAt]);
 
+  useEffect(() => {
+    if(screen !== "training") {
+      if(rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      return;
+    }
+
+    lastFrameRef.current = performance.now();
+
+    const tick = (now : number) => {
+      const dt = clamp((now - lastFrameRef.current) / 1000,0, 0.05);
+      lastFrameRef.current = now;
+      const SMOOTH = 28;
+      const t = 1 - Math.exp(-SMOOTH * dt);
+      const target = caretTargetRef.current;
+
+      setCaret((cur) => ({
+        x: lerp(cur.x, target.x, t),
+        y: lerp(cur.y, target.y, t),
+        h: lerp(cur.h, target.h, t),
+      }));
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if(rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [screen]);
+
   useLayoutEffect(() => {
     if (screen !== "training") {
       return;
@@ -269,7 +300,16 @@ export default function App() {
       const y = r.top - boxRect.top;
       const h = r.height;
 
-      setCaret({ x, y, h });
+      caretTargetRef.current = { x, y, h};
+
+      setCaret((cur) => {
+        const dx = Math.abs(cur.x - x);
+        const dy = Math.abs(cur.y - y);
+        if(dx + dy > 200) {
+          return { x, y, h};
+        }
+        return cur;
+      })
     };
 
     update();
@@ -775,6 +815,8 @@ export default function App() {
 
                 return (
                   <span key={wi} className="word">
+                    
+
                     {word.split("").map((ch, j) => {
                       const i = start + j;
                       const typed = input[i];
@@ -1316,4 +1358,12 @@ function ProfileScreen(props: { onBack: () => void }) {
       </div>
     </div>
   );
+}
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
 }
