@@ -49,27 +49,27 @@ const DEFAULT_PROFILE: Profile = {
 };
 
 function normalizeRun(x: any): RunResult | null {
-  if(!x || typeof x !== "object") {
+  if (!x || typeof x !== "object") {
     return null;
   }
 
   const wpmCorr =
     typeof x.wpmCorr === "number" ? x.wpmCorr :
-    typeof x.wpm === "number" ? x.wpm :
-    null;
-  
-  const wpmRaw = 
+      typeof x.wpm === "number" ? x.wpm :
+        null;
+
+  const wpmRaw =
     typeof x.wpmRaw === "number" ? x.wpmRaw :
-    typeof x.wpm === "number" ? x.wpm : 
-    null;
-  
+      typeof x.wpm === "number" ? x.wpm :
+        null;
+
   const accuracy = typeof x.accuracy === "number" ? x.accuracy : null;
   const elapsedMs = typeof x.elapsedMs === "number" ? x.elapsedMs : null;
   const id = typeof x.id === "string" && x.id ? x.id : null;
-  const prompt = typeof x.prompt === "string" ? x.prompt :  "";
+  const prompt = typeof x.prompt === "string" ? x.prompt : "";
   const endedAtIso = typeof x.endedAtIso === "string" ? x.endedAtIso : new Date().toISOString();
 
-  if(id == null || wpmCorr == null || wpmRaw == null || accuracy == null || elapsedMs == null) {
+  if (id == null || wpmCorr == null || wpmRaw == null || accuracy == null || elapsedMs == null) {
     return null;
   }
 
@@ -92,7 +92,7 @@ function loadRuns(): RunResult[] {
       return [];
     }
     const parsed = JSON.parse(raw);
-    if(!Array.isArray(parsed)){
+    if (!Array.isArray(parsed)) {
       return [];
     }
 
@@ -166,7 +166,7 @@ export default function App() {
   const promptBoxRef = useRef<HTMLDivElement | null>(null);
 
   const [caret, setCaret] = useState({ x: 0, y: 0, h: 22 });
-  const caretTargetRef = useRef({ x: 0, y: 0, h: 22});
+  const caretTargetRef = useRef({ x: 0, y: 0, h: 22 });
   const rafRef = useRef<number | null>(null);
   const lastFrameRef = useRef<number>(0);
 
@@ -229,14 +229,14 @@ export default function App() {
 
   const wordsWithStart = useMemo(() => {
     const words = prompt ? prompt.split(" ") : [];
-    const out: { word: string, start: number}[] = [];
+    const out: { word: string, start: number }[] = [];
     let start = 0;
 
-    for(let i = 0; i < words.length; i++) {
+    for (let i = 0; i < words.length; i++) {
       const w = words[i];
       out.push({ word: w, start });
       start += w.length;
-      if(i !== words.length - 1) {
+      if (i !== words.length - 1) {
         start += 1;
       }
     }
@@ -256,7 +256,7 @@ export default function App() {
     const typed = input;
     const correctChars = countCorrectChars(typed, prompt);
     const minutes = stats.elapsedMs / 60000;
-    const wpmRaw = minutes === 0 ? 0: (typed.length / 5) / minutes;
+    const wpmRaw = minutes === 0 ? 0 : (typed.length / 5) / minutes;
     const wpmCorr = minutes === 0 ? 0 : (correctChars / 5) / minutes;
 
     saveRun({
@@ -314,8 +314,8 @@ export default function App() {
   }, [startedAt, endedAt, prompt]);
 
   useEffect(() => {
-    if(screen !== "training") {
-      if(rafRef.current != null) {
+    if (screen !== "training") {
+      if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
@@ -324,8 +324,8 @@ export default function App() {
 
     lastFrameRef.current = performance.now();
 
-    const tick = (now : number) => {
-      const dt = clamp((now - lastFrameRef.current) / 1000,0, 0.05);
+    const tick = (now: number) => {
+      const dt = clamp((now - lastFrameRef.current) / 1000, 0, 0.05);
       lastFrameRef.current = now;
       const SMOOTH = 28;
       const t = 1 - Math.exp(-SMOOTH * dt);
@@ -343,7 +343,7 @@ export default function App() {
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
-      if(rafRef.current != null) {
+      if (rafRef.current != null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
@@ -374,13 +374,13 @@ export default function App() {
       const y = r.top - boxRect.top;
       const h = r.height;
 
-      caretTargetRef.current = { x, y, h};
+      caretTargetRef.current = { x, y, h };
 
       setCaret((cur) => {
         const dx = Math.abs(cur.x - x);
         const dy = Math.abs(cur.y - y);
-        if(dx + dy > 200) {
-          return { x, y, h};
+        if (dx + dy > 200) {
+          return { x, y, h };
         }
         return cur;
       })
@@ -392,10 +392,10 @@ export default function App() {
       const viewTop = box.scrollTop;
       const viewBottom = box.scrollTop + box.clientHeight;
 
-      if(caretBottom + padding > viewBottom) {
+      if (caretBottom + padding > viewBottom) {
         box.scrollTop = caretBottom + padding - box.clientHeight;
       }
-      else if(caretTop - padding < viewTop) {
+      else if (caretTop - padding < viewTop) {
         box.scrollTop = Math.max(0, caretTop - padding);
       }
     };
@@ -460,7 +460,7 @@ export default function App() {
         if (!alive) {
           return;
         }
-        if(!Array.isArray(data)) {
+        if (!Array.isArray(data)) {
           setPassages([]);
           return;
         }
@@ -473,7 +473,7 @@ export default function App() {
       }
       catch (e) {
         console.error(e);
-        if(!alive) {
+        if (!alive) {
           return;
         }
         setPassages([]);
@@ -498,7 +498,7 @@ export default function App() {
   function nextPrompt() {
     if (contentMode === "passage") {
       setPassageIndex((p) => {
-        if(!passages.length) {
+        if (!passages.length) {
           return p;
         }
         let next = p;
@@ -541,7 +541,7 @@ export default function App() {
     setSamples((prev) => {
       const last = prev[prev.length - 1];
       if (last && Math.floor(last.tSec) === Math.floor(tSec)) {
-        return [...prev.slice(0, -1), { tSec, rawWpm, corrWpm}];
+        return [...prev.slice(0, -1), { tSec, rawWpm, corrWpm }];
       }
       return [...prev, { tSec, rawWpm, corrWpm }];
     })
@@ -582,7 +582,7 @@ export default function App() {
       setStartedAt(start);
       startedAtRef.current = start;
       setMistakeSeconds([]);
-      setSamples([{ tSec: 1, rawWpm: 0 , corrWpm: 0 }]);
+      setSamples([{ tSec: 1, rawWpm: 0, corrWpm: 0 }]);
     }
 
     if (e.key === "Backspace") {
@@ -640,6 +640,10 @@ export default function App() {
     return applyTogglesToText(passages[idx % passages.length], t);
   }
 
+  function passageToggles(t: Toggles): Toggles {
+    return { ...t, punctuation: true };
+  }
+
   function regeneratePrompt(
     wordLists: Record<WordListMode, string[]> | null,
     wordListMode: WordListMode,
@@ -650,7 +654,7 @@ export default function App() {
     toggles: Toggles
   ) {
     if (contentMode === "passage") {
-      return generatePassagePrompt(passages, passageIndex, toggles);
+      return generatePassagePrompt(passages, passageIndex, passageToggles(toggles));
     }
 
     const list = wordLists?.[wordListMode] ?? [];
@@ -673,8 +677,8 @@ export default function App() {
   function countCorrectChars(typed: string, prompt: string) {
     let correct = 0;
     const n = Math.min(typed.length, prompt.length);
-    for(let i = 0 ; i < n; i++) {
-      if(typed[i] === prompt[i]) {
+    for (let i = 0; i < n; i++) {
+      if (typed[i] === prompt[i]) {
         correct++;
       }
     }
@@ -823,35 +827,45 @@ export default function App() {
                 >
                   Words
                 </button>
+
                 <button
                   className={`segBtn ${contentMode === "passage" ? "active" : ""}`}
                   onClick={() => {
                     setContentMode("passage");
-                    if(passages.length) {
-                      setPassageIndex(Math.floor(Math.random() * passages.length));
-                    }
+                    if (passages.length) setPassageIndex(Math.floor(Math.random() * passages.length));
                   }}
                 >
                   Passage
                 </button>
               </div>
 
-              <div className="toggleGroup">
+              {contentMode === "passage" ? (
                 <button
-                  className={`toggleBtn ${toggles.punctuation ? "on" : ""}`}
-                  onClick={() => setToggles((t) => ({ ...t, punctuation: !t.punctuation }))}
+                  className="btn"
+                  onClick={() => setPassageIndex((p) => p + 1)}
+                  disabled={!passages.length}
                 >
-                  Punctuation: {toggles.punctuation ? "On" : "Off"}
+                  Next passage
                 </button>
+              ) : (
+                <div className="toggleGroup">
+                  <button
+                    className={`toggleBtn ${toggles.punctuation ? "on" : ""}`}
+                    onClick={() => setToggles((t) => ({ ...t, punctuation: !t.punctuation }))}
+                  >
+                    Punctuation: {toggles.punctuation ? "On" : "Off"}
+                  </button>
 
-                <button
-                  className={`toggleBtn ${toggles.numbers ? "on" : ""}`}
-                  onClick={() => setToggles((t) => ({ ...t, numbers: !t.numbers }))}
-                >
-                  Numbers: {toggles.numbers ? "On" : "Off"}
-                </button>
-              </div>
+                  <button
+                    className={`toggleBtn ${toggles.numbers ? "on" : ""}`}
+                    onClick={() => setToggles((t) => ({ ...t, numbers: !t.numbers }))}
+                  >
+                    Numbers: {toggles.numbers ? "On" : "Off"}
+                  </button>
+                </div>
+              )}
             </div>
+
 
             {contentMode === "words" && (
               <div className="settingsRow">
@@ -882,16 +896,15 @@ export default function App() {
               </div>
             )}
 
+            {/* 
             {contentMode === "passage" && (
               <div className="settingsRow">
-                <div className="mutedSmall">
-                  Passage {passages.length ? (passageIndex + 1) : 0} / {passages.length}
-                </div>
                 <button className="btn" onClick={() => setPassageIndex((p) => p + 1)} disabled={!passages.length}>
                   Next passage
                 </button>
               </div>
             )}
+            */}
           </div>
 
           <div
@@ -910,14 +923,13 @@ export default function App() {
                   height: `${caretH}px`,
                 }}
               />
-              
-              
-              {wordsWithStart.map(({ word, start }, wi ) => {
+
+              {wordsWithStart.map(({ word, start }, wi) => {
                 const isLast = wi === wordsWithStart.length - 1;
 
                 return (
                   <span key={wi} className="word">
-                    
+
 
                     {word.split("").map((ch, j) => {
                       const i = start + j;
@@ -930,7 +942,7 @@ export default function App() {
                         !isTyped ? "untyped" : "",
                         isTyped && isCorrect ? "correct" : "",
                         isTyped && !isCorrect ? "wrong" : "",
-                      ].join (" ");
+                      ].join(" ");
 
                       return (
                         <span key={i} data-i={i} className={cls}>
@@ -1100,7 +1112,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
     return `${toX(t)},${toY(s.corrWpm)}`;
   }).join(" ");
 
-  const yTicks = 5;
+  const yTicks = 4;
   const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
 
 
@@ -1201,7 +1213,7 @@ function WpmChart(props: { samples: Sample[]; mistakeSeconds: number[] }) {
           stroke="currentColor"
           strokeWidth="2"
           opacity="0.25"
-          
+
         />
         <polyline
           points={corrPoly}
@@ -1290,13 +1302,13 @@ function HomeScreen(props: { onPick: (s: "training" | "multiplayer" | "bots" | "
 
 function HistoryScreen(props: { onBack: () => void }) {
   const [runs, setRuns] = useState<RunResult[]>(() => loadRuns());
-  
+
   const bestWpm = runs.length ? Math.max(...runs.map(r => r.wpmCorr)) : 0;
   const last10 = runs.slice(0, 10);
   const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpmCorr, 0) / last10.length : 0;
   const wpms = runs.slice(0, 20).map(r => r.wpmCorr).reverse();
 
-  
+
 
   return (
     <div className="page">

@@ -271,15 +271,13 @@
 }
 
 .settingsCard {
-  max-width: 820px;
-  margin: 0 auto 14px auto;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--card);
-  backdrop-filter: blur(8px);
+  margin: 14px 0 18px;
+  padding: 14px 0 18px;
+  border: none;
+  background: transparent;
   display: grid;
   gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
 .settingsRow {
