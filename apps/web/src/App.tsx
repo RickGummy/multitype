@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./App.css";
+import Multiplayer from "./Multiplayer"
 
 import TrainingScreen from "./Training";
 
@@ -169,22 +170,7 @@ export default function App() {
   }
 
   if (screen === "multiplayer") {
-    return (
-      <div className="page">
-        <div className="container">
-          <h1 className="title">Multiplayer</h1>
-          <p className="hint">Coming Soon</p>
-          <div className="row center">
-            <button 
-              className="btn" 
-              onClick={() => setScreen("home")}
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <Multiplayer />;
   }
 
   if (screen === "bots") {
