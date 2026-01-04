@@ -27,6 +27,7 @@ func (h *Hub) CreateRoom(owner *Client) *Room {
 
 	rid := newID(4)
 	room := NewRoom(rid)
+	room.SetHost(owner.pid)
 	h.rooms[rid] = room
 	log.Printf("room created rid=%s", rid)
 

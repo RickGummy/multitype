@@ -14,6 +14,9 @@ export type RoomState = {
     status: string;
     prompt: string;
     startAtMs: number;
+    seed: number;
+    promptMode: "short" | "medium" | "long" | "mixed";
+
     players: PlayerState[];
 };
 

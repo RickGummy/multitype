@@ -4,11 +4,13 @@ type ClientMsg struct {
 	Type string `json:"type"`
 	Rid  string `json:"rid,omitempty"`
 
-	Name     string `json:"name,omitempty"`
-	Ready    *bool  `json:"ready,omitempty"`
-	Cursor   *int   `json:"cursor,omitempty"`
-	Mistakes *int   `json:"mistakes,omitempty"`
-	Finished *bool  `json:"finished,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Ready      *bool  `json:"ready,omitempty"`
+	Cursor     *int   `json:"cursor,omitempty"`
+	Mistakes   *int   `json:"mistakes,omitempty"`
+	Finished   *bool  `json:"finished,omitempty"`
+	Prompt     string `json:"prompt,omitempty"`
+	PromptMode string `json:"prompt,omitempty"`
 }
 
 type ServerMsg struct {
@@ -30,9 +32,11 @@ type PlayerState struct {
 }
 
 type RoomState struct {
-	Rid       string        `json:"rid"`
-	Status    string        `json:"status"`
-	Prompt    string        `json:"prompt"`
-	StartAtMs int64         `json:"startAtMs"`
-	Players   []PlayerState `json:"players"`
+	Rid        string        `json:"rid"`
+	Status     string        `json:"status"`
+	Prompt     string        `json:"prompt"`
+	StartAtMs  int64         `json:"startAtMs"`
+	Seed	   int64		 `json:"seed"`
+	PromptMode string        `json:"promptMode"`
+	Players    []PlayerState `json:"players"`
 }

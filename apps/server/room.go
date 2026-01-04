@@ -10,13 +10,15 @@ type Room struct {
 	mu sync.Mutex
 
 	rid    string
+	hostPid string
 	status string
 
-	prompt    string
-	startAtMs int64
+	prompt     string
+	startAtMs  int64
+	seed       int64
+	promptMode string
 
 	clients map[string]*Client
-
 	prompts []string
 }
 
@@ -29,6 +31,7 @@ func NewRoom(rid string) *Room {
 			"The quick brown fox jumps over the lazy dog.",
 			"This is a really fun thing to code",
 		},
+		promptMode string,
 	}
 }
 
@@ -81,6 +84,47 @@ func (r *Room) SetReady(pid string, ready bool) {
 	}
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+}
+
+func (r *Room) HostPid() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.hostPid
+}
+
+func (r *Room) SetHost(pid string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hostPid = pid
+}
+
+func (r *Room) setPrompt(prompt string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.status != "LOBBY" {
+		return
+	}
+
+	r.prompt = prompt
+	
+	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+}
+
+func (r *Room) SetPromptMode(mode string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.status != "LOBBY" {
+		return
+	}
+
+	r.promptMode = mode;
+	r.broadcastLocked(ServerMsg{
+		Type: "room_state",
+		Rid: r.rid,
+		Data: r.snapshotLocked(),
+	})
 }
 
 func (r *Room) UpdateProgress(pid string, cursor, mistakes int) {
@@ -170,7 +214,8 @@ func (r *Room) Finish(pid string) {
 
 func (r *Room) beginCountdownLocked() {
 	r.status = "COUNTDOWN"
-	r.prompt = r.prompts[int(time.Now().UnixNano()%int64(len(r.prompts)))]
+	r.seed = time.Now().UnixNano()
+	r.prompt = ""
 	r.startAtMs = nowMs() + 3000
 
 	for _, c := range r.clients {
@@ -251,11 +296,13 @@ func (r *Room) snapshotLocked() RoomState {
 	})
 
 	return RoomState{
-		Rid:       r.rid,
-		Status:    r.status,
-		Prompt:    r.prompt,
-		StartAtMs: r.startAtMs,
-		Players:   players,
+		Rid:        r.rid,
+		Status:     r.status,
+		Prompt:     r.prompt,
+		StartAtMs:  r.startAtMs,
+		PromptMode: r.promptMode,
+		Seed: 	    r.seed,
+		Players:    players,
 	}
 }
 

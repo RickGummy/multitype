@@ -120,6 +120,21 @@ func (c *Client) handle(m ClientMsg) {
 				room.SetName(c.pid, c.name)
 			}
 		}
+	
+	case "set_prompt_mode":
+		if c.roomID == "" || m.PromptMode == "" {
+			return
+		}
+
+		room, ok := c.hub.GetRoom(c.roomID)
+		if !ok {
+			return
+		}
+
+		if room.HostPid() != c.pid {
+			return
+		}
+		room.SetPromptMode(m.PromptMode)
 
 	case "create_room":
 		room := c.hub.CreateRoom(c)

@@ -1061,29 +1061,6 @@ function passageToggles(t: Toggles) : Toggles {
     return { ...t, punctuation: true };
 }
 
-/*
-function applyTogglesToText(text: string, t: Toggles) {
-  let out = text;
-
-  if (!t.numbers) {
-    out = out.replace(/[0-9]/g, "");
-  }
-
-  if (!t.punctuation) {
-    out = out.replace(/[^\p{L}\p{N}\s]/gu, "");
-  }
-
-  out = out.replace(/\s+/g, " ").trim();
-  return out;
-}
-
-function generateWordsPrompt(list: string[], wordCount: WordCount, t: Toggles) {
-  const out: string[] = [];
-  for (let i = 0; i < wordCount; i++) out.push(pickWord(list));
-  return applyTogglesToText(out.join(" "), t);
-}
-*/
-
 
 function regeneratePrompt(
   wordLists: Record<WordListMode, string[]> | null,
