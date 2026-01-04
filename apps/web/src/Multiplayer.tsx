@@ -27,13 +27,14 @@ function PromptWithCaret({ prompt, caret }: { prompt: string, caret: number }) {
                 whiteSpace: "pre-wrap",
                 lineHeight: 1.6,
                 fontSize: 16,
+                color: "#eaeaea",
             }}
         >
             <span style={{ opacity: 0.9 }}>{left}</span>
             <span
                 style={{
-                    background: "#111",
-                    color: "#fff",
+                    background: "#ddd",
+                    color: "#111",
                     padding: "0 3px",
                     borderRadius: 4,
                 }}
@@ -43,6 +44,34 @@ function PromptWithCaret({ prompt, caret }: { prompt: string, caret: number }) {
             <span style={{ opacity: 0.9 }}>{right}</span>
         </div>
     );
+}
+
+function Pill({
+    active, children, onClick, disabled,
+}: {
+    active: boolean;
+    children: React.ReactNode;
+    onClick: () => void;
+    disabled?: boolean;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={disabled}
+            style={{
+                padding: "8px 12px",
+                borderRadius: 999,
+                border: "1px solid #2a2a2a",
+                background: active ? "#1f1f1f" : "#2b2b2b",
+                color: "#fff",
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.5 : 1,
+                fontWeight: 600,
+            }}
+        >
+            {children}
+        </button>
+    )
 }
 
 const btn: React.CSSProperties = {
@@ -64,10 +93,10 @@ const btnGhost: React.CSSProperties = {
 };
 
 const card: React.CSSProperties = {
-    border: "1px solid #e5e5e5",
-    borderRadius: 14,
-    padding: 14,
-    background: "#fff",
+    border: "1px solid #3a3a3a",
+    borderRadius: 18,
+    padding: 16,
+    background: "#1f1f1f",
 };
 
 function nowMs() {
@@ -231,6 +260,9 @@ export default function Multiplayer() {
     const status = room?.status ?? "NONE";
     const inRoom = !!room?.rid;
 
+    const me = room?.players.find(p => p.pid === pid);
+    const amReady = !!me?.ready;
+
     useEffect(() => {
         if (!room) {
             setView("lobby");
@@ -279,7 +311,15 @@ export default function Multiplayer() {
     const meCursor = prompt ? score(prompt, input).cursor : 0;
 
     return (
-        <div style={{ maxWidth: 1100, margin: "28px auto", padding: 16, fontFamily: "system-ui" }}>
+        <div 
+            style={{
+                minHeight: "100vh",
+                background: "#2b2b2b",
+                color: "#fff",
+                padding: "28px 16px",
+                fontFamily: "system-ui"
+            }}
+        >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <h2 style={{ margin: 0 }}>Multiplayer</h2>
                 <div style={{ fontSize: 14, opacity: 0.8 }}>
@@ -349,34 +389,37 @@ export default function Multiplayer() {
                                         Leave room
                                     </button>
 
-                                    <button style={btn} onClick={() => wsRef.current?.send({ type: "ready", data: { ready: true } })}>
-                                        Ready
+                                    <button
+                                        style={amReady ? btn : btnGhost}
+                                        onClick={() => wsRef.current?.send({ type: "ready", data: { ready: !amReady } })}
+                                    >
+                                        {amReady ? "Unready" : "Ready"}
                                     </button>
 
-                                    <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "ready", data: { ready: false } })}>
-                                        Unready
-                                    </button>
 
-                                    {isHost && room.status === "LOBBY" && (
-                                        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                            <span style={{ fontSize: 14, opacity: 0.8 }}>Mode</span>
-                                            <select
-                                                value={room.promptMode}
-                                                onChange={(e) =>
-                                                    wsRef.current?.send({
-                                                        type: "set_prompt_mode",
-                                                        data: { promptMode: e.target.value },
-                                                    })
-                                                }
-                                                style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
-                                            >
-                                                <option value="short">Short</option>
-                                                <option value="medium">Medium</option>
-                                                <option value="long">Long</option>
-                                                <option value="mixed">Mixed</option>
-                                            </select>
-                                        </label>
+                                    {room && isHost && room.status === "LOBBY" && (
+                                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                                            <span style={{ fontSize: 13, opacity: 0.9, color: "#111" }}>Mode</span>
+
+                                            <div style={{ display: "flex", gap: 8 }}>
+                                                {(["short", "medium", "long", "mixed"] as const).map((m) => (
+                                                    <Pill
+                                                        key={m}
+                                                        active={room.promptMode === m}
+                                                        onClick={() =>
+                                                            wsRef.current?.send({
+                                                                type: "set_prompt_mode",
+                                                                data: { promptMode: m },
+                                                            })
+                                                        }
+                                                    >
+                                                        {m}
+                                                    </Pill>
+                                                ))}
+                                            </div>
+                                        </div>
                                     )}
+
                                 </>
                             )}
                         </div>
@@ -398,7 +441,19 @@ export default function Multiplayer() {
                             <ul style={{ margin: 0, paddingLeft: 18 }}>
                                 {room.players.map((p) => (
                                     <li key={p.pid}>
-                                        <b>{p.name}</b> {p.pid === pid ? "(you)" : ""} — ready: {String(p.ready)} — {p.status}
+                                        <span
+                                            style={{
+                                                marginLeft: 8,
+                                                padding: "2px 8px",
+                                                borderRadius: 999,
+                                                border: "1px solid #ddd",
+                                                fontSize: 12,
+                                                opacity: 0.9,
+                                            }}
+                                        >
+                                            {p.ready ? "Ready" : "Not ready"}
+                                        </span>
+
                                     </li>
                                 ))}
                             </ul>
@@ -418,86 +473,125 @@ export default function Multiplayer() {
 
             {/* Battle */}
             {(view === "battle") && room && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                    <div style={card}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                            <h3 style={{ margin: 0 }}>You</h3>
-                            <div style={{ fontSize: 14, opacity: 0.8 }}>
-                                {status === "COUNTDOWN" ? `Starting in ${startsInSec}s` : ""}
-                                {status === "RUNNING" ? "Go!" : ""}
-                                {status === "FINISHED" ? "Finished" : ""}
+                <div
+                    style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1px 1fr",
+                        gap: 0,
+                        height: "calc(100vh - 140px)",
+                    }}
+                >
+                    <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+                        <div style={{ width: "100%", maxWidth: 520 }}>
+                            {/* Left side, me */}
+                            <div style={card}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                    <h3 style={{ margin: 0 }}>You</h3>
+                                    <div style={{ fontSize: 14, opacity: 0.8 }}>
+                                        {status === "COUNTDOWN" ? `Starting in ${startsInSec}s` : ""}
+                                        {status === "RUNNING" ? "Go!" : ""}
+                                        {status === "FINISHED" ? "Finished" : ""}
+                                    </div>
+                                </div>
+
+                                <div
+  style={{
+    marginTop: 18,
+    padding: "22px 22px",
+    borderRadius: 18,
+    background: "#2a2a2a",
+    border: "1px solid #3a3a3a",
+    boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+  }}
+>
+  {prompt ? <PromptWithCaret prompt={prompt} caret={meCursor} /> : "(loading prompt...)"}
+</div>
+
+
+                                <textarea
+                                    disabled={!(room.status === "RUNNING")}
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    placeholder={room.status === "RUNNING" ? "Type..." : "Waiting..."}
+                                    rows={5}
+                                    style={{ width: "100%", marginTop: 12, padding: 12, fontSize: 16, borderRadius: 12, border: "1px solid #ddd" }}
+                                />
+
+                                <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+                                    <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
+                                        Leave
+                                    </button>
+                                    <button
+                                        style={btn}
+                                        onClick={() => {
+                                            setInput("");
+                                            setView("lobby");
+                                            wsRef.current?.send({ type: "ready", data: { ready: true } });
+                                        }}
+                                    >
+                                        Play again
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-
-                        <div style={{ marginTop: 10, padding: 12, background: "#f6f6f6", borderRadius: 12 }}>
-                            {prompt ? <PromptWithCaret prompt={prompt} caret={meCursor} /> : "(loading prompt...)"}
-                        </div>
-
-                        <textarea
-                            disabled={!(room.status === "RUNNING")}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder={room.status === "RUNNING" ? "Type..." : "Waiting..."}
-                            rows={5}
-                            style={{ width: "100%", marginTop: 12, padding: 12, fontSize: 16, borderRadius: 12, border: "1px solid #ddd" }}
-                        />
-
-                        <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
-                            <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
-                                Leave
-                            </button>
-                            <button
-                                style={btn}
-                                onClick={() => {
-                                    setInput("");
-                                    setView("lobby");
-                                    wsRef.current?.send({ type: "ready", data: { ready: true } });
-                                }}
-                            >
-                                Play again
-                            </button>
                         </div>
                     </div>
 
-                    {/* RIGHT: OPPONENTS */}
-                    <div style={card}>
-                        <h3 style={{ marginTop: 0 }}>Opponents</h3>
+                    {/* border */}
+                    <div style={{ background: "#2a2a2a" }} />
 
-                        {room.players.filter((p) => p.pid !== pid).length === 0 && (
-                            <div style={{ opacity: 0.7 }}>Waiting for someone to join…</div>
-                        )}
+                    <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+                        <div style={{ width: "100%", maxWidth: 520 }}>
+                            {/* Right side, opponents */}
+                            <div style={card}>
+                                <h3 style={{ marginTop: 0 }}>Opponents</h3>
 
-                        {room.players
-                            .filter((p) => p.pid !== pid)
-                            .map((p) => {
-                                const prog = prompt.length ? Math.min(1, p.cursor / prompt.length) : 0;
-                                return (
-                                    <div key={p.pid} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                            <b>{p.name}</b>
-                                            <span style={{ fontSize: 14, opacity: 0.8 }}>
-                                                {p.wpm} wpm · {p.acc}% acc
-                                            </span>
-                                        </div>
+                                {room.players.filter((p) => p.pid !== pid).length === 0 && (
+                                    <div style={{ opacity: 0.7 }}>Waiting for someone to join…</div>
+                                )}
 
-                                        <div style={{ height: 10, background: "#eee", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
-                                            <div style={{ width: `${prog * 100}%`, height: "100%", background: "#111" }} />
-                                        </div>
+                                {room.players
+                                    .filter((p) => p.pid !== pid)
+                                    .map((p) => {
+                                        const prog = prompt.length ? Math.min(1, p.cursor / prompt.length) : 0;
+                                        return (
+                                            <div key={p.pid} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                                    <b>{p.name}</b>
+                                                    <span style={{ fontSize: 14, opacity: 0.8 }}>
+                                                        {p.wpm} wpm · {p.acc}% acc
+                                                    </span>
+                                                </div>
 
-                                        <div style={{ marginTop: 10, padding: 10, background: "#f6f6f6", borderRadius: 12 }}>
-                                            {prompt ? <PromptWithCaret prompt={prompt} caret={p.cursor} /> : "(loading prompt...)"}
-                                        </div>
+                                                <div style={{ height: 10, background: "#eee", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+                                                    <div style={{ width: `${prog * 100}%`, height: "100%", background: "#111" }} />
+                                                </div>
+
+                                                <div
+  style={{
+    marginTop: 18,
+    padding: "22px 22px",
+    borderRadius: 18,
+    background: "#2a2a2a",
+    border: "1px solid #3a3a3a",
+    boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+  }}
+>
+  {prompt ? <PromptWithCaret prompt={prompt} caret={meCursor} /> : "(loading prompt...)"}
+</div>
+
+                                            </div>
+                                        );
+                                    })}
+
+                                {/* finish overlay */}
+                                {status === "FINISHED" && (
+                                    <div style={{ marginTop: 8, padding: 12, borderRadius: 12, border: "1px solid #111" }}>
+                                        <b>Race finished.</b>{" "}
+                                        {finishLeft != null ? `Returning to lobby in ${finishLeft}s.` : ""}
                                     </div>
-                                );
-                            })}
-
-                        {/* finish overlay */}
-                        {status === "FINISHED" && (
-                            <div style={{ marginTop: 8, padding: 12, borderRadius: 12, border: "1px solid #111" }}>
-                                <b>Race finished.</b>{" "}
-                                {finishLeft != null ? `Returning to lobby in ${finishLeft}s.` : ""}
+                                )}
                             </div>
-                        )}
+                        </div>
                     </div>
                 </div>
             )}
