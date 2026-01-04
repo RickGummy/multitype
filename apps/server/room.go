@@ -31,7 +31,7 @@ func NewRoom(rid string) *Room {
 			"The quick brown fox jumps over the lazy dog.",
 			"This is a really fun thing to code",
 		},
-		promptMode string,
+		promptMode: "short",
 	}
 }
 
@@ -99,19 +99,6 @@ func (r *Room) SetHost(pid string) {
 	r.hostPid = pid
 }
 
-func (r *Room) setPrompt(prompt string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.status != "LOBBY" {
-		return
-	}
-
-	r.prompt = prompt
-	
-	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
-}
-
 func (r *Room) SetPromptMode(mode string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -119,7 +106,7 @@ func (r *Room) SetPromptMode(mode string) {
 		return
 	}
 
-	r.promptMode = mode;
+	r.promptMode = mode
 	r.broadcastLocked(ServerMsg{
 		Type: "room_state",
 		Rid: r.rid,
@@ -142,10 +129,6 @@ func (r *Room) UpdateProgress(pid string, cursor, mistakes int) {
 
 	if cursor < 0 {
 		cursor = 0
-	}
-
-	if cursor > len(r.prompt) {
-		cursor = len(r.prompt)
 	}
 
 	if mistakes < 0 {
@@ -280,14 +263,14 @@ func (r *Room) snapshotLocked() RoomState {
 
 	for _, c := range r.clients {
 		players = append(players, PlayerState{
-			Pid:      c.pid,
-			Name:     c.name,
-			Ready:    c.ready,
-			Cursor:   c.cursor,
-			Mistakes: c.mistakes,
-			WPM:      c.wpm,
-			Acc:      c.acc,
-			Status:   c.status,
+			Pid:		c.pid,
+			Name:		c.name,
+			Ready:		c.ready,
+			Cursor:		c.cursor,
+			Mistakes:	c.mistakes,
+			WPM:		c.wpm,
+			Acc:		c.acc,
+			Status:		c.status,
 		})
 	}
 
@@ -296,12 +279,12 @@ func (r *Room) snapshotLocked() RoomState {
 	})
 
 	return RoomState{
-		Rid:        r.rid,
-		Status:     r.status,
-		Prompt:     r.prompt,
+		Rid:		r.rid,
+		Status:		r.status,
+		Prompt:		r.prompt,
 		StartAtMs:  r.startAtMs,
 		PromptMode: r.promptMode,
-		Seed: 	    r.seed,
+		Seed:		r.seed,
 		Players:    players,
 	}
 }
