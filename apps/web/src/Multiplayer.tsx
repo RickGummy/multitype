@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useLayoutEffect, use } from "react";
+import "./App.css";
 import { WSClient } from "./net/ws";
 import type { WSMsg } from "./net/ws"
 import type { RoomState } from "./net/types";
@@ -9,76 +10,6 @@ const WORD_COUNTS: Record<string, number> = {
     long: 30,
     mixed: 40,
 };
-
-function TrainingPromptWithCaret({
-    prompt,
-    typed,
-    caret,
-}: {
-    prompt: string;
-    typed: string;
-    caret: number;
-}) {
-    const i = Math.max(0, Math.min(caret, prompt.length));
-
-    const renderChar = (ch: string, pos: number) => {
-        const isTyped = pos < typed.length;
-        const isCorrect = isTyped && typed[pos] === prompt[pos];
-        const isWrong = isTyped && typed[pos] !== prompt[pos];
-
-        return (
-            <span
-                key={pos}
-                style={{
-                    color: isTyped ? (isCorrect ? "#eaeaea" : "#ffffff") : "#bdbdbd",
-                    background: isWrong ? "#5b1f1f" : "transparent",
-                    borderRadius: isWrong ? 4 : 0,
-                    padding: isWrong ? "0 2px" : 0,
-                }}
-            >
-                {ch}
-            </span>
-        );
-    };
-
-    return (
-        <div
-            style={{
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                whiteSpace: "pre-wrap",
-                lineHeight: 1.7,
-                fontSize: 18,
-                color: "#eaeaea",
-                position: "relative",
-            }}
-        >
-            {prompt.split("").map((ch, pos) => (
-                <span key={pos} style={{ position: "relative" }}>
-
-                    {pos === i && (
-                        <span
-                            style={{
-                                display: "inline-block",
-                                width: 0,
-                                marginRight: 0,
-                                color: "#eaeaea",
-                                fontWeight: 700,
-                            }}
-                        >
-                            |
-                        </span>
-                    )}
-                    {renderChar(ch, pos)}
-                </span>
-            ))}
-
-
-            {i === prompt.length && (
-                <span style={{ color: "#eaeaea", fontWeight: 700 }}>|</span>
-            )}
-        </div>
-    );
-}
 
 
 function Pill({
@@ -209,6 +140,127 @@ function score(prompt: string, typed: string) {
     return { cursor, mistakes };
 }
 
+function lerp(a: number, b: number, t: number) {
+    return a + (b - a) * t;
+}
+
+function clamp(n: number, lo: number, hi: number) {
+    return Math.max(lo, Math.min(hi, n));
+}
+
+
+function PromptBoxTrainingExact(props: {
+    prompt: string;
+    typedLen: number;
+    caretIndex: number;
+    isTyping: boolean;
+}) {
+    const { prompt, typedLen, caretIndex, isTyping } = props;
+
+    const promptBoxRef = useRef<HTMLDivElement | null>(null);
+
+    const [caret, setCaret] = useState({ x: 0, y: 0, h: 22 });
+    const caretTargetRef = useRef({ x: 0, y: 0, h: 22 });
+
+    const rafRef = useRef<number | null>(null);
+    const lastFrameRef = useRef<number>(0);
+
+
+    useEffect(() => {
+        lastFrameRef.current = performance.now();
+
+        const tick = (now: number) => {
+            const dt = clamp((now - lastFrameRef.current) / 1000, 0, 0.05);
+            lastFrameRef.current = now;
+
+            const SMOOTH = 28;
+            const t = 1 - Math.exp(-SMOOTH * dt);
+            const target = caretTargetRef.current;
+
+            setCaret((cur) => ({
+                x: lerp(cur.x, target.x, t),
+                y: lerp(cur.y, target.y, t),
+                h: lerp(cur.h, target.h, t),
+            }));
+
+            rafRef.current = requestAnimationFrame(tick);
+        };
+
+        rafRef.current = requestAnimationFrame(tick);
+        return () => {
+            if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
+        };
+    }, []);
+
+
+    useLayoutEffect(() => {
+        const update = () => {
+            const box = promptBoxRef.current;
+            if (!box) return;
+
+            const idx = Math.min(caretIndex, prompt.length);
+            const el = box.querySelector<HTMLSpanElement>(`span[data-i="${idx}"]`);
+            if (!el) return;
+
+            const boxRect = box.getBoundingClientRect();
+            const r = el.getBoundingClientRect();
+
+            const x = r.left - boxRect.left;
+            const y = r.top - boxRect.top;
+            const h = r.height;
+
+            caretTargetRef.current = { x, y, h };
+
+            setCaret((cur) => {
+                const dx = Math.abs(cur.x - x);
+                const dy = Math.abs(cur.y - y);
+                if (dx + dy > 200) return { x, y, h };
+                return cur;
+            });
+        };
+
+        update();
+        const raf = requestAnimationFrame(update);
+        window.addEventListener("resize", update);
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener("resize", update);
+        };
+    }, [caretIndex, prompt]);
+
+    const CARET_SCALE = 0.6;
+    const caretH = Math.max(12, caret.h * CARET_SCALE);
+
+    return (
+        <div className="promptBox" ref={promptBoxRef}>
+            <div
+                className={`cursorCaret ${isTyping ? "typing" : "idle"}`}
+                style={{
+                    transform: `translate(${caret.x}px, ${caret.y + (caret.h - caretH) / 2}px)`,
+                    height: `${caretH}px`,
+                }}
+            />
+
+            {prompt.split("").map((ch, i) => {
+                const isTyped = i < typedLen;
+                const cls = ["promptChar", !isTyped ? "untyped" : "correct"].join(" ");
+
+                return (
+                    <span key={i} data-i={i} className={cls}>
+                        {ch === " " ? "\u00A0" : ch}
+                    </span>
+                );
+            })}
+
+            <span data-i={prompt.length} className="promptChar">
+                {"\u200B"}
+            </span>
+        </div>
+    );
+}
+
+
 export default function Multiplayer() {
     const [pid, setPid] = useState<string>("");
     const [room, setRoom] = useState<RoomState | null>(null);
@@ -216,7 +268,31 @@ export default function Multiplayer() {
     const [name, setName] = useState("Rick");
 
     const [typed, setTyped] = useState("");
-    const inputRef = useRef<HTMLInputElement | null>(null);
+    const typeAreaRef = useRef<HTMLDivElement | null>(null);
+
+    const typedRef = useRef(typed);
+    useEffect(() => {
+        typedRef.current = typed;
+    }, [typed]);
+
+    const [isTyping, setIsTyping] = useState(false);
+    const typingTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        setIsTyping(true);
+        if (typingTimerRef.current) {
+            window.clearTimeout(typingTimerRef.current);
+        }
+
+        typingTimerRef.current = window.setTimeout(() => setIsTyping(false), 200);
+
+        return () => {
+            if (typingTimerRef.current) {
+                window.setTimeout(() => setIsTyping(false), 200);
+            }
+        };
+    }, [typed.length]);
+
     const [lists, setLists] = useState<null | {
         short: string[];
         medium: string[];
@@ -403,11 +479,47 @@ export default function Multiplayer() {
         setTyped("");
         setPrompt("");
         setView("lobby");
-        setView("lobby");
+        setFinishLeft(null);
     }
 
     const countdownMs = room ? room.startAtMs - nowMs() : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
+
+    function onTypeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+        if (!room) return;
+        if (room.status !== "RUNNING") return;
+        if (!prompt) return;
+
+        if (e.key === "Tab") {
+            e.preventDefault();
+            return;
+        }
+
+        if (e.key === "Backspace") {
+            setTyped((prev) => prev.slice(0, -1));
+            return;
+        }
+
+        if (e.key === "Escape") {
+            return;
+        }
+
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+        const isPrintable = e.key.length === 1;
+        if (!isPrintable) return;
+
+        const prev = typedRef.current;
+        const next = (prev + e.key).slice(0, prompt.length);
+        setTyped(next);
+    }
+
+    useEffect(() => {
+        if (view === "battle") {
+            setTimeout(() => typeAreaRef.current?.focus(), 0);
+        }
+    }, [view]);
+
 
     return (
         <div style={{
@@ -452,7 +564,7 @@ export default function Multiplayer() {
                                     <input
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                                        style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "eaeaea" }}
                                     />
                                 </label>
 
@@ -476,7 +588,7 @@ export default function Multiplayer() {
                                             placeholder="Room code"
                                             value={ridInput}
                                             onChange={(e) => setRidInput(e.target.value)}
-                                            style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                                            style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "eaeaea" }}
                                         />
                                         <button
                                             style={btnGhost}
@@ -545,7 +657,7 @@ export default function Multiplayer() {
                                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                                     {room.players.map((p) => (
                                         <li key={p.pid}>
-                                             <b>{p.name}</b> {p.pid === pid ? "(you)" : ""}{" "}
+                                            <b>{p.name}</b> {p.pid === pid ? "(you)" : ""}{" "}
                                             <span
                                                 style={{
                                                     marginLeft: 8,
@@ -582,7 +694,7 @@ export default function Multiplayer() {
                         }}
                     >
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-end" }}>
-                            <div style={{ width: "100%", maxWidth: 780 }}>
+                            <div style={{ width: "100%", maxWidth: 860 }}>
                                 {/* Left side, me */}
                                 <div style={card}>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -594,38 +706,38 @@ export default function Multiplayer() {
                                         </div>
                                     </div>
 
-                                    <input
-                                        ref={inputRef}
-                                        value={typed}
-                                        onChange={(e) => setTyped(e.target.value)}
-                                        disabled={room.status !== "RUNNING"}
-                                        style={{
-                                            position: "absolute",
-                                            opacity: 0,
-                                            pointerEvents: "none",
-                                            height: 0,
-                                            width: 0,
-                                        }}
-                                    />
-
                                     <div
-                                        onClick={() => inputRef.current?.focus()}
+                                        ref={typeAreaRef}
+                                        tabIndex={0}
+                                        className="typeArea"
+                                        onKeyDown={onTypeKeyDown}
+                                        onClick={() => typeAreaRef.current?.focus()}
                                         style={{
                                             marginTop: 18,
-                                            padding: "22px 22px",
-                                            borderRadius: 18,
-                                            background: "#222222",
-                                            border: "1px solid #3a3a3a",
-                                            boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-                                            cursor: room.status === "RUNNING" ? "text" : "default",
                                         }}
                                     >
-                                        {prompt ? (
-                                            <TrainingPromptWithCaret prompt={prompt} typed={typed} caret={myCaret} />
-                                        ) : (
-                                            "(loading prompt...)"
-                                        )}
+                                        <div
+                                            style={{
+                                                padding: "22px 22px",
+                                                borderRadius: 18,
+                                                background: "#222222",
+                                                border: "1px solid #3a3a3a",
+                                                boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+                                            }}
+                                        >
+                                            {prompt ? (
+                                                <PromptBoxTrainingExact
+                                                    prompt={prompt}
+                                                    typedLen={typed.length}
+                                                    caretIndex={typed.length}
+                                                    isTyping={isTyping}
+                                                />
+                                            ) : (
+                                                "(loading prompt...)"
+                                            )}
+                                        </div>
                                     </div>
+
 
 
 
@@ -651,7 +763,7 @@ export default function Multiplayer() {
                         <div style={{ background: "#3b3b3b" }} />
 
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-start" }}>
-                            <div style={{ width: "100%", maxWidth: 780 }}>
+                            <div style={{ width: "100%", maxWidth: 860 }}>
                                 {/* Right side, opponents */}
                                 <div style={card}>
                                     <h3 style={{ marginTop: 0 }}>Opponents</h3>
@@ -687,7 +799,17 @@ export default function Multiplayer() {
                                                             boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
                                                         }}
                                                     >
-                                                        {prompt ? <TrainingPromptWithCaret prompt={prompt} typed={""} caret={p.cursor} /> : "(loading prompt...)"}
+                                                        {prompt ? (
+                                                            <PromptBoxTrainingExact
+                                                                prompt={prompt}
+                                                                typedLen={p.cursor}
+                                                                caretIndex={p.cursor}
+                                                                isTyping={true} 
+                                                            />
+                                                        ) : (
+                                                            "(loading prompt...)"
+                                                        )}
+
                                                     </div>
 
                                                 </div>
