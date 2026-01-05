@@ -123,7 +123,7 @@ const btnGhost: React.CSSProperties = {
     borderRadius: 10,
     border: "1px solid #ddd",
     background: "#fff",
-    color: "#11",
+    color: "#111",
     cursor: "pointer",
 };
 
@@ -140,12 +140,13 @@ const pageWrap: React.CSSProperties = {
     color: "#fff",
     display: "flex",
     justifyContent: "center",
+    alignItems: "stretch",
 };
 
 const pageInner: React.CSSProperties = {
     width: "100%",
     maxWidth: 980,
-    padding: "48px, 16px",
+    padding: "48px 16px",
 };
 
 const centeredTitle: React.CSSProperties = {
@@ -158,14 +159,11 @@ const centeredTitle: React.CSSProperties = {
 
 const lobbyBar: React.CSSProperties = {
     display: "flex",
-    gap: 10,
+    width: "100%",
+    gap: 14,
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    flexWrap: "wrap",
-    padding: 14,
-    borderRadius: 16,
-    background: "#1f1f1f",
-    border: "1px solid #3a3a3a",
 };
 
 function nowMs() {
@@ -400,13 +398,31 @@ export default function Multiplayer() {
     const meCursor = prompt ? score(prompt, typed).cursor : 0;
 
     return (
-        <div style={pageWrap}>
-            <div style={pageInner}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ width: 40 }} />
-                    <h1 style={centeredTitle}>Multiplayer</h1>
+        <div style={{
+            ...pageWrap,
+            alignItems: view === "lobby" ? "center" : "stretch",
+            }}
+        >
+            <div style={{
+                ...pageInner,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: view === "lobby" ? "center" : "flex-start",
+                }}
+            >
+                <div
+                    style={{
+                        position: "relative",
+                        width: "100%",
+                        display: "flex",
+                        justifyContent: "center",
+                        marginBottom: 18,
+                    }}
+                >
+                    <h1 style={{ ...centeredTitle, margin: 0 }}>Multiplayer</h1>
+
                     <button
-                        style={btnGhost}
+                        style={{ ...btnGhost, position: "absolute", right: 0, top: 0 }}
                         onClick={() => {
                             wsRef.current?.send({ type: "leave_room", data: {} });
                             setRoom(null);
@@ -419,6 +435,7 @@ export default function Multiplayer() {
                         Back
                     </button>
                 </div>
+
 
                 {/* Lobby */}
                 {(view === "lobby") && (
@@ -542,12 +559,6 @@ export default function Multiplayer() {
                                         </li>
                                     ))}
                                 </ul>
-
-                                <h3 style={{ marginTop: 14, marginBottom: 8 }}>Prompt preview</h3>
-
-                                <div style={{ padding: 12, background: "#f6f6f6", borderRadius: 12 }}>
-                                    {prompt || "(loading prompt...)"}
-                                </div>
                             </div>
                         )}
                     </div>
