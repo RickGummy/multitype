@@ -20,41 +20,26 @@ function TrainingPromptWithCaret({
     caret: number;
 }) {
     const i = Math.max(0, Math.min(caret, prompt.length));
-    const n = Math.min(prompt.length, typed.length);
 
-    let correctUntil = 0;
-    for (let k = 0; k < n; k++) {
-        if (prompt[k] === typed[k]) {
-            correctUntil++;
-        }
-        else break;
-    }
+    const renderChar = (ch: string, pos: number) => {
+        const isTyped = pos < typed.length;
+        const isCorrect = isTyped && typed[pos] === prompt[pos];
+        const isWrong = isTyped && typed[pos] !== prompt[pos];
 
-    const left = prompt.slice(0, i);
-    const mid = i < prompt.length ? prompt[i] : " ";
-    const right = i < prompt.length ? prompt.slice(i + 1) : "";
-
-    const renderRegion = (s: string, offset: number) =>
-        s.split("").map((ch, idx) => {
-            const pos = offset + idx;
-            const isTyped = pos < typed.length;
-            const isCorrect = isTyped && typed[pos] === prompt[pos];
-            const isWrong = isTyped && typed[pos] !== prompt[pos];
-
-            return (
-                <span
-                    key={pos}
-                    style={{
-                        color: isTyped ? (isCorrect ? "#eaeaea" : "#ffffff") : "#bdbdbd",
-                        background: isWrong ? "#5b1f1f" : "transparent",
-                        borderRadius: isWrong ? 4 : 0,
-                        padding: isWrong ? "0 2px" : 0,
-                    }}
-                >
-                    {ch}
-                </span>
-            );
-        });
+        return (
+            <span
+                key={pos}
+                style={{
+                    color: isTyped ? (isCorrect ? "#eaeaea" : "#ffffff") : "#bdbdbd",
+                    background: isWrong ? "#5b1f1f" : "transparent",
+                    borderRadius: isWrong ? 4 : 0,
+                    padding: isWrong ? "0 2px" : 0,
+                }}
+            >
+                {ch}
+            </span>
+        );
+    };
 
     return (
         <div
@@ -63,27 +48,38 @@ function TrainingPromptWithCaret({
                 whiteSpace: "pre-wrap",
                 lineHeight: 1.7,
                 fontSize: 18,
+                color: "#eaeaea",
+                position: "relative",
             }}
         >
-            {renderRegion(left, 0)}
+            {prompt.split("").map((ch, pos) => (
+                <span key={pos} style={{ position: "relative" }}>
 
-            <span
-                style={{
-                    background: "#ddd",
-                    color: "#111",
-                    padding: "0 3px",
-                    borderRadius: 4,
-                    display: "inline-block",
-                }}
-            >
-                {mid}
-            </span>
+                    {pos === i && (
+                        <span
+                            style={{
+                                display: "inline-block",
+                                width: 0,
+                                marginRight: 0,
+                                color: "#eaeaea",
+                                fontWeight: 700,
+                            }}
+                        >
+                            |
+                        </span>
+                    )}
+                    {renderChar(ch, pos)}
+                </span>
+            ))}
 
 
-            {renderRegion(right, i + 1)}
+            {i === prompt.length && (
+                <span style={{ color: "#eaeaea", fontWeight: 700 }}>|</span>
+            )}
         </div>
     );
 }
+
 
 function Pill({
     active, children, onClick, disabled,
@@ -116,7 +112,7 @@ function Pill({
 const btn: React.CSSProperties = {
     padding: "10px 12px",
     borderRadius: 10,
-    border: "1px solid #ddd",
+    border: "1px solid #3a3a3a",
     background: "#111",
     color: "#fff",
     cursor: "pointer",
@@ -125,9 +121,9 @@ const btn: React.CSSProperties = {
 const btnGhost: React.CSSProperties = {
     padding: "10px 12px",
     borderRadius: 10,
-    border: "1px solid #ddd",
-    background: "#fff",
-    color: "#111",
+    border: "1px solid #3a3a3a",
+    background: "transparent",
+    color: "#eaeaea",
     cursor: "pointer",
 };
 
@@ -397,18 +393,16 @@ export default function Multiplayer() {
     }, [finishLeft]);
 
     const onBack = () => {
-        wsRef.current?.send({ type: "leave_room", data: {} });
-        wsRef.current?.close();
-        setTimeout(() => {
-            const ws = new WSClient((m: WSMsg) => {});
-            ws.connect();
-            wsRef.current = ws;
-        }, 50);
+        if (room?.rid) {
+            wsRef.current?.send({ type: "leave_room", data: {} });
+        }
 
         setRoom(null);
+        setIsHost(false);
+        setRidInput("");
         setTyped("");
         setPrompt("");
-        setRidInput("");
+        setView("lobby");
         setView("lobby");
     }
 
@@ -551,12 +545,13 @@ export default function Multiplayer() {
                                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                                     {room.players.map((p) => (
                                         <li key={p.pid}>
+                                             <b>{p.name}</b> {p.pid === pid ? "(you)" : ""}{" "}
                                             <span
                                                 style={{
                                                     marginLeft: 8,
                                                     padding: "2px 8px",
                                                     borderRadius: 999,
-                                                    border: "1px solid #ddd",
+                                                    border: "1px solid #3a3a3a",
                                                     fontSize: 12,
                                                     opacity: 0.9,
                                                 }}
