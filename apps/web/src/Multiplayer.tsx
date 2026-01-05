@@ -134,6 +134,40 @@ const card: React.CSSProperties = {
     background: "#1f1f1f",
 };
 
+const pageWrap: React.CSSProperties = {
+    minHeight: "100vh",
+    background: "#2b2b2b",
+    color: "#fff",
+    display: "flex",
+    justifyContent: "center",
+};
+
+const pageInner: React.CSSProperties = {
+    width: "100%",
+    maxWidth: 980,
+    padding: "48px, 16px",
+};
+
+const centeredTitle: React.CSSProperties = {
+    textAlign: "center",
+    fontSize: 44,
+    fontWeight: 700,
+    margin: "0 0 24px 0",
+    fontFamily: "Georgia, serif",
+};
+
+const lobbyBar: React.CSSProperties = {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    padding: 14,
+    borderRadius: 16,
+    background: "#1f1f1f",
+    border: "1px solid #3a3a3a",
+};
+
 function nowMs() {
     return Date.now();
 }
@@ -366,304 +400,332 @@ export default function Multiplayer() {
     const meCursor = prompt ? score(prompt, typed).cursor : 0;
 
     return (
-        <div
-            style={{
-                minHeight: "100vh",
-                background: "#2b2b2b",
-                color: "#fff",
-                padding: "28px 16px",
-                fontFamily: "system-ui"
-            }}
-        >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                <h2 style={{ margin: 0 }}>Multiplayer</h2>
-                <button
-                    style={btnGhost}
-                    onClick={() => {
-                        wsRef.current?.send({ type: "leave_room", data: {} });
-                        setRoom(null);
-                        setTyped("");
-                        setPrompt("");
-                        setRidInput("");
-                        setView("lobby");
-                    }}
-                >
-                    Back
-                </button>
-            </div>
+        <div style={pageWrap}>
+            <div style={pageInner}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ width: 40 }} />
+                    <h1 style={centeredTitle}>Multiplayer</h1>
+                    <button
+                        style={btnGhost}
+                        onClick={() => {
+                            wsRef.current?.send({ type: "leave_room", data: {} });
+                            setRoom(null);
+                            setTyped("");
+                            setPrompt("");
+                            setRidInput("");
+                            setView("lobby");
+                        }}
+                    >
+                        Back
+                    </button>
+                </div>
 
-            {/* Lobby */}
-            {(view === "lobby") && (
-                <div style={{ display: "grid", gap: 14 }}>
-                    <div style={card}>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <span>Name</span>
-                                <input
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
-                                />
-                            </label>
-
-                            <button style={btn} onClick={() => wsRef.current?.send({ type: "set_name", data: { name } })}>
-                                Set name
-                            </button>
-
-                            {!room && (
-                                <>
-                                    <button
-                                        style={btn}
-                                        onClick={() => {
-                                            setIsHost(true);
-                                            wsRef.current?.send({ type: "create_room", data: {} });
-                                        }}
-                                    >
-                                        Create room
-                                    </button>
-
+                {/* Lobby */}
+                {(view === "lobby") && (
+                    <div style={lobbyBar}>
+                        <div style={card}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                                <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                    <span>Name</span>
                                     <input
-                                        placeholder="Room code"
-                                        value={ridInput}
-                                        onChange={(e) => setRidInput(e.target.value)}
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
                                         style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
                                     />
-                                    <button
-                                        style={btnGhost}
-                                        onClick={() => {
-                                            setIsHost(false);
-                                            wsRef.current?.send({ type: "join_room", rid: ridInput, data: {} });
-                                        }}
-                                    >
-                                        Join room
-                                    </button>
-                                </>
-                            )}
+                                </label>
 
-                            {room && (
-                                <>
-                                    <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
-                                        Leave room
-                                    </button>
+                                <button style={btn} onClick={() => wsRef.current?.send({ type: "set_name", data: { name } })}>
+                                    Set name
+                                </button>
 
-                                    <button
-                                        style={amReady ? btn : btnGhost}
-                                        onClick={() => wsRef.current?.send({ type: "ready", data: { ready: !amReady } })}
-                                    >
-                                        {amReady ? "Unready" : "Ready"}
-                                    </button>
-
-
-                                    {room && isHost && room.status === "LOBBY" && (
-                                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                                            <span style={{ fontSize: 13, opacity: 0.9, color: "#111" }}>Mode</span>
-
-                                            <div style={{ display: "flex", gap: 8 }}>
-                                                {(["short", "medium", "long", "mixed"] as const).map((m) => (
-                                                    <Pill
-                                                        key={m}
-                                                        active={room.promptMode === m}
-                                                        onClick={() =>
-                                                            wsRef.current?.send({
-                                                                type: "set_prompt_mode",
-                                                                data: { promptMode: m },
-                                                            })
-                                                        }
-                                                    >
-                                                        {m}
-                                                    </Pill>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                </>
-                            )}
-                        </div>
-                    </div>
-
-                    {room && (
-                        <div style={card}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <div>
-                                    <div><b>Room:</b> {room.rid}</div>
-                                    <div style={{ fontSize: 14, opacity: 0.8 }}>
-                                        Prompt mode: <b>{room.promptMode}</b> · Seed: <b>{room.seed}</b>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <h3 style={{ marginTop: 14, marginBottom: 8 }}>Players</h3>
-
-                            <ul style={{ margin: 0, paddingLeft: 18 }}>
-                                {room.players.map((p) => (
-                                    <li key={p.pid}>
-                                        <span
-                                            style={{
-                                                marginLeft: 8,
-                                                padding: "2px 8px",
-                                                borderRadius: 999,
-                                                border: "1px solid #ddd",
-                                                fontSize: 12,
-                                                opacity: 0.9,
+                                {!room && (
+                                    <>
+                                        <button
+                                            style={btn}
+                                            onClick={() => {
+                                                setIsHost(true);
+                                                wsRef.current?.send({ type: "create_room", data: {} });
                                             }}
                                         >
-                                            {p.ready ? "Ready" : "Not ready"}
-                                        </span>
+                                            Create room
+                                        </button>
 
-                                    </li>
-                                ))}
-                            </ul>
+                                        <input
+                                            placeholder="Room code"
+                                            value={ridInput}
+                                            onChange={(e) => setRidInput(e.target.value)}
+                                            style={{ padding: 10, borderRadius: 10, border: "1px solid #ddd" }}
+                                        />
+                                        <button
+                                            style={btnGhost}
+                                            onClick={() => {
+                                                setIsHost(false);
+                                                wsRef.current?.send({ type: "join_room", rid: ridInput, data: {} });
+                                            }}
+                                        >
+                                            Join room
+                                        </button>
+                                    </>
+                                )}
 
-                            <h3 style={{ marginTop: 14, marginBottom: 8 }}>Prompt preview</h3>
+                                {room && (
+                                    <>
+                                        <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
+                                            Leave room
+                                        </button>
 
-                            <div style={{ padding: 12, background: "#f6f6f6", borderRadius: 12 }}>
-                                {prompt || "(loading prompt...)"}
+                                        <button
+                                            style={amReady ? btn : btnGhost}
+                                            onClick={() => wsRef.current?.send({ type: "ready", data: { ready: !amReady } })}
+                                        >
+                                            {amReady ? "Unready" : "Ready"}
+                                        </button>
+
+
+                                        {room && isHost && room.status === "LOBBY" && (
+                                            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                                                <span style={{ fontSize: 13, opacity: 0.9, color: "#111" }}>Mode</span>
+
+                                                <div style={{ display: "flex", gap: 8 }}>
+                                                    {(["short", "medium", "long", "mixed"] as const).map((m) => (
+                                                        <Pill
+                                                            key={m}
+                                                            active={room.promptMode === m}
+                                                            onClick={() =>
+                                                                wsRef.current?.send({
+                                                                    type: "set_prompt_mode",
+                                                                    data: { promptMode: m },
+                                                                })
+                                                            }
+                                                        >
+                                                            {m}
+                                                        </Pill>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                    </>
+                                )}
                             </div>
                         </div>
-                    )}
-                </div>
 
-            )}
-
-
-
-            {/* Battle */}
-            {(view === "battle") && room && (
-                <div
-                    style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1px 1fr",
-                        gap: 0,
-                        height: "calc(100vh - 140px)",
-                    }}
-                >
-                    <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
-                        <div style={{ width: "100%", maxWidth: 520 }}>
-                            {/* Left side, me */}
+                        {room && (
                             <div style={card}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                    <h3 style={{ margin: 0 }}>You</h3>
-                                    <div style={{ fontSize: 14, opacity: 0.8 }}>
-                                        {status === "COUNTDOWN" ? `Starting in ${startsInSec}s` : ""}
-                                        {status === "RUNNING" ? "Go!" : ""}
-                                        {status === "FINISHED" ? "Finished" : ""}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div>
+                                        <div><b>Room:</b> {room.rid}</div>
+                                        <div style={{ fontSize: 14, opacity: 0.8 }}>
+                                            Prompt mode: <b>{room.promptMode}</b> · Seed: <b>{room.seed}</b>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <input
-                                    ref={inputRef}
-                                    value={typed}
-                                    onChange={(e) => setTyped(e.target.value)}
-                                    disabled={room.status !== "RUNNING"}
-                                    style={{
-                                        position: "absolute",
-                                        opacity: 0,
-                                        pointerEvents: "none",
-                                        height: 0,
-                                        width: 0,
-                                    }}
-                                />
+                                <h3 style={{ marginTop: 14, marginBottom: 8 }}>Players</h3>
 
+                                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                                    {room.players.map((p) => (
+                                        <li key={p.pid}>
+                                            <span
+                                                style={{
+                                                    marginLeft: 8,
+                                                    padding: "2px 8px",
+                                                    borderRadius: 999,
+                                                    border: "1px solid #ddd",
+                                                    fontSize: 12,
+                                                    opacity: 0.9,
+                                                }}
+                                            >
+                                                {p.ready ? "Ready" : "Not ready"}
+                                            </span>
+
+                                        </li>
+                                    ))}
+                                </ul>
+
+                                <h3 style={{ marginTop: 14, marginBottom: 8 }}>Prompt preview</h3>
+
+                                <div style={{ padding: 12, background: "#f6f6f6", borderRadius: 12 }}>
+                                    {prompt || "(loading prompt...)"}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {room && (
+                    <div style={{ ...card, marginTop: 18, background: "#1f1f1f", border: "1px solid #3a3a3a" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div>
+                                <div style={{ fontSize: 18, fontWeight: 700 }}>Room {room.rid}</div>
+                                <div style={{ opacity: 0.8, fontSize: 13 }}>
+                                    Mode: <b>{room.promptMode}</b>
+                                </div>
+                            </div>
+                            <div style={{ opacity: 0.8, fontSize: 13 }}>Players: {room.players.length}</div>
+                        </div>
+
+                        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                            {room.players.map((p) => (
                                 <div
-                                    onClick={() => inputRef.current?.focus()}
+                                    key={p.pid}
                                     style={{
-                                        marginTop: 18,
-                                        padding: "22px 22px",
-                                        borderRadius: 18,
-                                        background: "#2a2a2a",
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        padding: "10px 12px",
+                                        borderRadius: 12,
                                         border: "1px solid #3a3a3a",
-                                        boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-                                        cursor: room.status === "RUNNING" ? "text" : "default",
+                                        background: "#2b2b2b",
                                     }}
                                 >
-                                    {prompt ? (
-                                        <TrainingStylePrompt prompt={prompt} typed={typed} />
-                                    ) : (
-                                        "(loading prompt...)"
-                                    )}
+                                    <div>
+                                        <b>{p.name}</b> {p.pid === pid ? "(you)" : ""}
+                                    </div>
+                                    <div style={{ opacity: 0.85 }}>{p.ready ? "Ready" : "Not ready"}</div>
                                 </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
 
+                {/* Battle */}
+                {(view === "battle") && room && (
+                    <div
+                        style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1px 1fr",
+                            gap: 0,
+                            height: "calc(100vh - 140px)",
+                        }}
+                    >
+                        <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+                            <div style={{ width: "100%", maxWidth: 520 }}>
+                                {/* Left side, me */}
+                                <div style={card}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                        <h3 style={{ margin: 0 }}>You</h3>
+                                        <div style={{ fontSize: 14, opacity: 0.8 }}>
+                                            {status === "COUNTDOWN" ? `Starting in ${startsInSec}s` : ""}
+                                            {status === "RUNNING" ? "Go!" : ""}
+                                            {status === "FINISHED" ? "Finished" : ""}
+                                        </div>
+                                    </div>
 
-                                <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
-                                    <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
-                                        Leave
-                                    </button>
-                                    <button
-                                        style={btn}
-                                        onClick={() => {
-                                            setInput("");
-                                            setView("lobby");
-                                            wsRef.current?.send({ type: "ready", data: { ready: true } });
+                                    <input
+                                        ref={inputRef}
+                                        value={typed}
+                                        onChange={(e) => setTyped(e.target.value)}
+                                        disabled={room.status !== "RUNNING"}
+                                        style={{
+                                            position: "absolute",
+                                            opacity: 0,
+                                            pointerEvents: "none",
+                                            height: 0,
+                                            width: 0,
+                                        }}
+                                    />
+
+                                    <div
+                                        onClick={() => inputRef.current?.focus()}
+                                        style={{
+                                            marginTop: 18,
+                                            padding: "22px 22px",
+                                            borderRadius: 18,
+                                            background: "#2a2a2a",
+                                            border: "1px solid #3a3a3a",
+                                            boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+                                            cursor: room.status === "RUNNING" ? "text" : "default",
                                         }}
                                     >
-                                        Play again
-                                    </button>
+                                        {prompt ? (
+                                            <TrainingStylePrompt prompt={prompt} typed={typed} />
+                                        ) : (
+                                            "(loading prompt...)"
+                                        )}
+                                    </div>
+
+
+
+                                    <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+                                        <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
+                                            Leave
+                                        </button>
+                                        <button
+                                            style={btn}
+                                            onClick={() => {
+                                                setInput("");
+                                                setView("lobby");
+                                                wsRef.current?.send({ type: "ready", data: { ready: true } });
+                                            }}
+                                        >
+                                            Play again
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* border */}
+                        <div style={{ background: "#3b3b3b" }} />
+
+                        <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+                            <div style={{ width: "100%", maxWidth: 520 }}>
+                                {/* Right side, opponents */}
+                                <div style={card}>
+                                    <h3 style={{ marginTop: 0 }}>Opponents</h3>
+
+                                    {room.players.filter((p) => p.pid !== pid).length === 0 && (
+                                        <div style={{ opacity: 0.7 }}>Waiting for someone to join…</div>
+                                    )}
+
+                                    {room.players
+                                        .filter((p) => p.pid !== pid)
+                                        .map((p) => {
+                                            const prog = prompt.length ? Math.min(1, p.cursor / prompt.length) : 0;
+                                            return (
+                                                <div key={p.pid} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                                        <b>{p.name}</b>
+                                                        <span style={{ fontSize: 14, opacity: 0.8 }}>
+                                                            {p.wpm} wpm · {p.acc}% acc
+                                                        </span>
+                                                    </div>
+
+                                                    <div style={{ height: 10, background: "#eee", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+                                                        <div style={{ width: `${prog * 100}%`, height: "100%", background: "#111" }} />
+                                                    </div>
+
+                                                    <div
+                                                        style={{
+                                                            marginTop: 18,
+                                                            padding: "22px 22px",
+                                                            borderRadius: 18,
+                                                            background: "#2a2a2a",
+                                                            border: "1px solid #3a3a3a",
+                                                            boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+                                                        }}
+                                                    >
+                                                        {prompt ? <PromptWithCaret prompt={prompt} caret={p.cursor} /> : "(loading prompt...)"}
+                                                    </div>
+
+                                                </div>
+                                            );
+                                        })}
+
+                                    {/* finish overlay */}
+                                    {status === "FINISHED" && (
+                                        <div style={{ marginTop: 8, padding: 12, borderRadius: 12, border: "1px solid #111" }}>
+                                            <b>Race finished.</b>{" "}
+                                            {finishLeft != null ? `Returning to lobby in ${finishLeft}s.` : ""}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    {/* border */}
-                    <div style={{ background: "#3b3b3b" }} />
-
-                    <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
-                        <div style={{ width: "100%", maxWidth: 520 }}>
-                            {/* Right side, opponents */}
-                            <div style={card}>
-                                <h3 style={{ marginTop: 0 }}>Opponents</h3>
-
-                                {room.players.filter((p) => p.pid !== pid).length === 0 && (
-                                    <div style={{ opacity: 0.7 }}>Waiting for someone to join…</div>
-                                )}
-
-                                {room.players
-                                    .filter((p) => p.pid !== pid)
-                                    .map((p) => {
-                                        const prog = prompt.length ? Math.min(1, p.cursor / prompt.length) : 0;
-                                        return (
-                                            <div key={p.pid} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
-                                                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                                    <b>{p.name}</b>
-                                                    <span style={{ fontSize: 14, opacity: 0.8 }}>
-                                                        {p.wpm} wpm · {p.acc}% acc
-                                                    </span>
-                                                </div>
-
-                                                <div style={{ height: 10, background: "#eee", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
-                                                    <div style={{ width: `${prog * 100}%`, height: "100%", background: "#111" }} />
-                                                </div>
-
-                                                <div
-                                                    style={{
-                                                        marginTop: 18,
-                                                        padding: "22px 22px",
-                                                        borderRadius: 18,
-                                                        background: "#2a2a2a",
-                                                        border: "1px solid #3a3a3a",
-                                                        boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-                                                    }}
-                                                >
-                                                    {prompt ? <PromptWithCaret prompt={prompt} caret={p.cursor} /> : "(loading prompt...)"}
-                                                </div>
-
-                                            </div>
-                                        );
-                                    })}
-
-                                {/* finish overlay */}
-                                {status === "FINISHED" && (
-                                    <div style={{ marginTop: 8, padding: 12, borderRadius: 12, border: "1px solid #111" }}>
-                                        <b>Race finished.</b>{" "}
-                                        {finishLeft != null ? `Returning to lobby in ${finishLeft}s.` : ""}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
 
     );
