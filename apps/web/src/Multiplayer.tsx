@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { WSClient } from "./net/ws";
 import type { WSMsg } from "./net/ws"
 import type { RoomState } from "./net/types";
@@ -10,55 +10,51 @@ const WORD_COUNTS: Record<string, number> = {
     mixed: 40,
 };
 
-function clamp(n: number, lo: number, hi: number) {
-    return Math.max(lo, Math.min(hi, n));
-}
+function TrainingPromptWithCaret({
+    prompt,
+    typed,
+    caret,
+}: {
+    prompt: string;
+    typed: string;
+    caret: number;
+}) {
+    const i = Math.max(0, Math.min(caret, prompt.length));
+    const n = Math.min(prompt.length, typed.length);
 
-function PromptWithCaret({ prompt, caret }: { prompt: string, caret: number }) {
-    const i = clamp(caret, 0, prompt.length);
+    let correctUntil = 0;
+    for (let k = 0; k < n; k++) {
+        if (prompt[k] === typed[k]) {
+            correctUntil++;
+        }
+        else break;
+    }
+
     const left = prompt.slice(0, i);
     const mid = i < prompt.length ? prompt[i] : " ";
     const right = i < prompt.length ? prompt.slice(i + 1) : "";
 
-    return (
-        <div
-            style={{
-                fontFamily: "ui-monspace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                whiteSpace: "pre-wrap",
-                lineHeight: 1.6,
-                fontSize: 16,
-                color: "#eaeaea",
-            }}
-        >
-            <span style={{ opacity: 0.9 }}>{left}</span>
-            <span
-                style={{
-                    background: "#ddd",
-                    color: "#111",
-                    padding: "0 3px",
-                    borderRadius: 4,
-                }}
-            >
-                {mid}
-            </span>
-            <span style={{ opacity: 0.9 }}>{right}</span>
-        </div>
-    );
-}
+    const renderRegion = (s: string, offset: number) =>
+        s.split("").map((ch, idx) => {
+            const pos = offset + idx;
+            const isTyped = pos < typed.length;
+            const isCorrect = isTyped && typed[pos] === prompt[pos];
+            const isWrong = isTyped && typed[pos] !== prompt[pos];
 
-function TrainingStylePrompt({ prompt, typed }: { prompt: string; typed: string }) {
-    const n = Math.min(prompt.length, typed.length);
-
-    let correctUntil = 0;
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] === typed[i]) correctUntil++;
-        else break;
-    }
-
-    const correct = prompt.slice(0, correctUntil);
-    const wrongTyped = typed.slice(correctUntil, n);
-    const wrongExpected = prompt.slice(correctUntil, n);
-    const rest = prompt.slice(n);
+            return (
+                <span
+                    key={pos}
+                    style={{
+                        color: isTyped ? (isCorrect ? "#eaeaea" : "#ffffff") : "#bdbdbd",
+                        background: isWrong ? "#5b1f1f" : "transparent",
+                        borderRadius: isWrong ? 4 : 0,
+                        padding: isWrong ? "0 2px" : 0,
+                    }}
+                >
+                    {ch}
+                </span>
+            );
+        });
 
     return (
         <div
@@ -67,16 +63,24 @@ function TrainingStylePrompt({ prompt, typed }: { prompt: string; typed: string 
                 whiteSpace: "pre-wrap",
                 lineHeight: 1.7,
                 fontSize: 18,
-                color: "#bdbdbd",
             }}
         >
-            <span style={{ color: "#eaeaea" }}>{correct}</span>
-            {wrongTyped.length > 0 && (
-                <span style={{ background: "#5b1f1f", color: "#fff", borderRadius: 6, padding: "0 3px" }}>
-                    {wrongExpected}
-                </span>
-            )}
-            <span>{rest}</span>
+            {renderRegion(left, 0)}
+
+            <span
+                style={{
+                    background: "#ddd",
+                    color: "#111",
+                    padding: "0 3px",
+                    borderRadius: 4,
+                    display: "inline-block",
+                }}
+            >
+                {mid}
+            </span>
+
+
+            {renderRegion(right, i + 1)}
         </div>
     );
 }
@@ -131,7 +135,7 @@ const card: React.CSSProperties = {
     border: "1px solid #3a3a3a",
     borderRadius: 18,
     padding: 16,
-    background: "#1f1f1f",
+    background: "#222222",
 };
 
 const pageWrap: React.CSSProperties = {
@@ -214,7 +218,7 @@ export default function Multiplayer() {
     const [room, setRoom] = useState<RoomState | null>(null);
     const [ridInput, setRidInput] = useState("");
     const [name, setName] = useState("Rick");
-    const [input, setInput] = useState("");
+
     const [typed, setTyped] = useState("");
     const inputRef = useRef<HTMLInputElement | null>(null);
     const [lists, setLists] = useState<null | {
@@ -318,10 +322,13 @@ export default function Multiplayer() {
         }
 
         setPrompt(out.join(" "));
-        setInput("");
+        setTyped("");
     }, [room?.seed, room?.promptMode, lists]);
 
     const canType = room?.status === "RUNNING";
+    const me = room?.players.find((p) => p.pid === pid);
+    const myCaret = me?.cursor ?? 0;
+    const amReady = me?.ready ?? false;
 
     useEffect(() => {
         if (!room || !canType || !prompt) {
@@ -345,10 +352,6 @@ export default function Multiplayer() {
     }, [typed, room, canType]);
 
     const status = room?.status ?? "NONE";
-    const inRoom = !!room?.rid;
-
-    const me = room?.players.find(p => p.pid === pid);
-    const amReady = !!me?.ready;
 
     useEffect(() => {
         if (!room) {
@@ -382,7 +385,7 @@ export default function Multiplayer() {
         if (finishLeft <= 0) {
             setView("lobby");
             setFinishLeft(null);
-            setInput("");
+            setTyped("");
             return;
         }
 
@@ -393,22 +396,37 @@ export default function Multiplayer() {
         return () => window.clearInterval(id);
     }, [finishLeft]);
 
+    const onBack = () => {
+        wsRef.current?.send({ type: "leave_room", data: {} });
+        wsRef.current?.close();
+        setTimeout(() => {
+            const ws = new WSClient((m: WSMsg) => {});
+            ws.connect();
+            wsRef.current = ws;
+        }, 50);
+
+        setRoom(null);
+        setTyped("");
+        setPrompt("");
+        setRidInput("");
+        setView("lobby");
+    }
+
     const countdownMs = room ? room.startAtMs - nowMs() : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
-    const meCursor = prompt ? score(prompt, typed).cursor : 0;
 
     return (
         <div style={{
             ...pageWrap,
             alignItems: view === "lobby" ? "center" : "stretch",
-            }}
+        }}
         >
             <div style={{
                 ...pageInner,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: view === "lobby" ? "center" : "flex-start",
-                }}
+            }}
             >
                 <div
                     style={{
@@ -422,15 +440,8 @@ export default function Multiplayer() {
                     <h1 style={{ ...centeredTitle, margin: 0 }}>Multiplayer</h1>
 
                     <button
-                        style={{ ...btnGhost, position: "absolute", right: 0, top: 0 }}
-                        onClick={() => {
-                            wsRef.current?.send({ type: "leave_room", data: {} });
-                            setRoom(null);
-                            setTyped("");
-                            setPrompt("");
-                            setRidInput("");
-                            setView("lobby");
-                        }}
+                        style={{ ...btnGhost, position: "absolute", right: 0, top: 0, zIndex: 10 }}
+                        onClick={onBack}
                     >
                         Back
                     </button>
@@ -487,9 +498,6 @@ export default function Multiplayer() {
 
                                 {room && (
                                     <>
-                                        <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
-                                            Leave room
-                                        </button>
 
                                         <button
                                             style={amReady ? btn : btnGhost}
@@ -564,40 +572,8 @@ export default function Multiplayer() {
                     </div>
                 )}
 
-                {room && (
-                    <div style={{ ...card, marginTop: 18, background: "#1f1f1f", border: "1px solid #3a3a3a" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div>
-                                <div style={{ fontSize: 18, fontWeight: 700 }}>Room {room.rid}</div>
-                                <div style={{ opacity: 0.8, fontSize: 13 }}>
-                                    Mode: <b>{room.promptMode}</b>
-                                </div>
-                            </div>
-                            <div style={{ opacity: 0.8, fontSize: 13 }}>Players: {room.players.length}</div>
-                        </div>
 
-                        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-                            {room.players.map((p) => (
-                                <div
-                                    key={p.pid}
-                                    style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        padding: "10px 12px",
-                                        borderRadius: 12,
-                                        border: "1px solid #3a3a3a",
-                                        background: "#2b2b2b",
-                                    }}
-                                >
-                                    <div>
-                                        <b>{p.name}</b> {p.pid === pid ? "(you)" : ""}
-                                    </div>
-                                    <div style={{ opacity: 0.85 }}>{p.ready ? "Ready" : "Not ready"}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+
 
 
                 {/* Battle */}
@@ -610,8 +586,8 @@ export default function Multiplayer() {
                             height: "calc(100vh - 140px)",
                         }}
                     >
-                        <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
-                            <div style={{ width: "100%", maxWidth: 520 }}>
+                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-end" }}>
+                            <div style={{ width: "100%", maxWidth: 780 }}>
                                 {/* Left side, me */}
                                 <div style={card}>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -643,14 +619,14 @@ export default function Multiplayer() {
                                             marginTop: 18,
                                             padding: "22px 22px",
                                             borderRadius: 18,
-                                            background: "#2a2a2a",
+                                            background: "#222222",
                                             border: "1px solid #3a3a3a",
                                             boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
                                             cursor: room.status === "RUNNING" ? "text" : "default",
                                         }}
                                     >
                                         {prompt ? (
-                                            <TrainingStylePrompt prompt={prompt} typed={typed} />
+                                            <TrainingPromptWithCaret prompt={prompt} typed={typed} caret={myCaret} />
                                         ) : (
                                             "(loading prompt...)"
                                         )}
@@ -659,19 +635,18 @@ export default function Multiplayer() {
 
 
                                     <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
-                                        <button style={btnGhost} onClick={() => wsRef.current?.send({ type: "leave_room", data: {} })}>
-                                            Leave
-                                        </button>
-                                        <button
-                                            style={btn}
-                                            onClick={() => {
-                                                setInput("");
-                                                setView("lobby");
-                                                wsRef.current?.send({ type: "ready", data: { ready: true } });
-                                            }}
-                                        >
-                                            Play again
-                                        </button>
+
+                                        {room.status === "FINISHED" && (
+                                            <button
+                                                style={btn}
+                                                onClick={() => {
+                                                    setTyped("");
+                                                }}
+                                            >
+                                                Play again
+                                            </button>
+                                        )}
+
                                     </div>
                                 </div>
                             </div>
@@ -680,8 +655,8 @@ export default function Multiplayer() {
                         {/* border */}
                         <div style={{ background: "#3b3b3b" }} />
 
-                        <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
-                            <div style={{ width: "100%", maxWidth: 520 }}>
+                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-start" }}>
+                            <div style={{ width: "100%", maxWidth: 780 }}>
                                 {/* Right side, opponents */}
                                 <div style={card}>
                                     <h3 style={{ marginTop: 0 }}>Opponents</h3>
@@ -695,7 +670,7 @@ export default function Multiplayer() {
                                         .map((p) => {
                                             const prog = prompt.length ? Math.min(1, p.cursor / prompt.length) : 0;
                                             return (
-                                                <div key={p.pid} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                                                <div key={p.pid} style={{ border: "1px solid #3a3a3a", borderRadius: 12, padding: 12, marginBottom: 12 }}>
                                                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                                                         <b>{p.name}</b>
                                                         <span style={{ fontSize: 14, opacity: 0.8 }}>
@@ -703,8 +678,8 @@ export default function Multiplayer() {
                                                         </span>
                                                     </div>
 
-                                                    <div style={{ height: 10, background: "#eee", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
-                                                        <div style={{ width: `${prog * 100}%`, height: "100%", background: "#111" }} />
+                                                    <div style={{ height: 10, background: "#2b2b2b", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+                                                        <div style={{ width: `${prog * 100}%`, height: "100%", background: "#eaeaea" }} />
                                                     </div>
 
                                                     <div
@@ -712,12 +687,12 @@ export default function Multiplayer() {
                                                             marginTop: 18,
                                                             padding: "22px 22px",
                                                             borderRadius: 18,
-                                                            background: "#2a2a2a",
+                                                            background: "#222222",
                                                             border: "1px solid #3a3a3a",
                                                             boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
                                                         }}
                                                     >
-                                                        {prompt ? <PromptWithCaret prompt={prompt} caret={p.cursor} /> : "(loading prompt...)"}
+                                                        {prompt ? <TrainingPromptWithCaret prompt={prompt} typed={""} caret={p.cursor} /> : "(loading prompt...)"}
                                                     </div>
 
                                                 </div>
