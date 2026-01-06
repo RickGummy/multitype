@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useLayoutEffect, use } from "react";
+import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import "./App.css";
 import { WSClient } from "./net/ws";
 import type { WSMsg } from "./net/ws"
@@ -40,14 +40,7 @@ function Pill({
     )
 }
 
-const btn: React.CSSProperties = {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #3a3a3a",
-    background: "#111",
-    color: "#fff",
-    cursor: "pointer",
-};
+
 
 const btnGhost: React.CSSProperties = {
     padding: "10px 12px",
@@ -56,7 +49,10 @@ const btnGhost: React.CSSProperties = {
     background: "transparent",
     color: "#eaeaea",
     cursor: "pointer",
+    fontWeight: 650,
 };
+
+const btn: React.CSSProperties = btnGhost;
 
 const card: React.CSSProperties = {
     border: "1px solid #3a3a3a",
@@ -76,7 +72,7 @@ const pageWrap: React.CSSProperties = {
 
 const pageInner: React.CSSProperties = {
     width: "100%",
-    maxWidth: 980,
+    maxWidth: 1200,
     padding: "48px 16px",
 };
 
@@ -165,6 +161,20 @@ function PromptBoxTrainingExact(props: {
     const rafRef = useRef<number | null>(null);
     const lastFrameRef = useRef<number>(0);
 
+    const wordsWithStart = React.useMemo(() => {
+        const words = prompt ? prompt.split(" ") : [];
+        const out: { word: string; start: number }[] = [];
+        let start = 0;
+
+        for (let i = 0; i < words.length; i++) {
+            const w = words[i];
+            out.push({ word: w, start });
+            start += w.length;
+            if (i !== words.length - 1) start += 1; // space
+        }
+        return out;
+    }, [prompt]);
+
 
     useEffect(() => {
         lastFrameRef.current = performance.now();
@@ -218,6 +228,19 @@ function PromptBoxTrainingExact(props: {
                 if (dx + dy > 200) return { x, y, h };
                 return cur;
             });
+
+            const padding = 18;
+            const caretTop = y;
+            const caretBottom = y + h;
+
+            const viewTop = box.scrollTop;
+            const viewBottom = box.scrollTop + box.clientHeight;
+
+            if (caretBottom + padding > viewBottom) {
+                box.scrollTop = caretBottom + padding - box.clientHeight;
+            } else if (caretTop - padding < viewTop) {
+                box.scrollTop = Math.max(0, caretTop - padding);
+            }
         };
 
         update();
@@ -242,13 +265,42 @@ function PromptBoxTrainingExact(props: {
                 }}
             />
 
-            {prompt.split("").map((ch, i) => {
-                const isTyped = i < typedLen;
-                const cls = ["promptChar", !isTyped ? "untyped" : "correct"].join(" ");
+            {wordsWithStart.map(({ word, start }, wi) => {
+                const isLast = wi === wordsWithStart.length - 1;
 
                 return (
-                    <span key={i} data-i={i} className={cls}>
-                        {ch === " " ? "\u00A0" : ch}
+                    <span key={wi} className="word">
+                        {word.split("").map((ch, j) => {
+                            const i = start + j;
+                            const isTyped = i < typedLen;
+
+                            const cls = [
+                                "promptChar",
+                                !isTyped ? "untyped" : "correct",
+                            ].join(" ");
+
+                            return (
+                                <span key={i} data-i={i} className={cls}>
+                                    {ch}
+                                </span>
+                            );
+                        })}
+
+                        {!isLast && (() => {
+                            const i = start + word.length;
+                            const isTyped = i < typedLen;
+
+                            const cls = [
+                                "promptChar",
+                                !isTyped ? "untyped" : "correct",
+                            ].join(" ");
+
+                            return (
+                                <span key={`sp-${i}`} data-i={i} className={cls}>
+                                    {"\u00A0"}
+                                </span>
+                            );
+                        })()}
                     </span>
                 );
             })}
@@ -261,7 +313,7 @@ function PromptBoxTrainingExact(props: {
 }
 
 
-export default function Multiplayer() {
+export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [pid, setPid] = useState<string>("");
     const [room, setRoom] = useState<RoomState | null>(null);
     const [ridInput, setRidInput] = useState("");
@@ -282,6 +334,7 @@ export default function Multiplayer() {
         setIsTyping(true);
         if (typingTimerRef.current) {
             window.clearTimeout(typingTimerRef.current);
+            typingTimerRef.current = null;
         }
 
         typingTimerRef.current = window.setTimeout(() => setIsTyping(false), 200);
@@ -399,7 +452,6 @@ export default function Multiplayer() {
 
     const canType = room?.status === "RUNNING";
     const me = room?.players.find((p) => p.pid === pid);
-    const myCaret = me?.cursor ?? 0;
     const amReady = me?.ready ?? false;
 
     useEffect(() => {
@@ -469,9 +521,26 @@ export default function Multiplayer() {
     }, [finishLeft]);
 
     const onBack = () => {
-        if (room?.rid) {
+        // go to lobby
+        if (view === "battle" && room?.rid) {
             wsRef.current?.send({ type: "leave_room", data: {} });
+
+            setRoom(null);
+            setIsHost(false);
+            setRidInput("");
+            setTyped("");
+            setPrompt("");
+            setView("lobby");
+            setFinishLeft(null);
+            return;
         }
+        // go to first page
+        if (!room?.rid) {
+            onExit();
+            return;
+        }
+        // go to multiplayer screen
+        wsRef.current?.send({ type: "leave_room", data: {} });
 
         setRoom(null);
         setIsHost(false);
@@ -480,7 +549,8 @@ export default function Multiplayer() {
         setPrompt("");
         setView("lobby");
         setFinishLeft(null);
-    }
+    };
+
 
     const countdownMs = room ? room.startAtMs - nowMs() : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
@@ -564,7 +634,7 @@ export default function Multiplayer() {
                                     <input
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "eaeaea" }}
+                                        style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "#eaeaea", outline: "none", }}
                                     />
                                 </label>
 
@@ -588,7 +658,7 @@ export default function Multiplayer() {
                                             placeholder="Room code"
                                             value={ridInput}
                                             onChange={(e) => setRidInput(e.target.value)}
-                                            style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "eaeaea" }}
+                                            style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "#eaeaea", outline: "none", }}
                                         />
                                         <button
                                             style={btnGhost}
@@ -615,7 +685,7 @@ export default function Multiplayer() {
 
                                         {room && isHost && room.status === "LOBBY" && (
                                             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                                                <span style={{ fontSize: 13, opacity: 0.9, color: "#111" }}>Mode</span>
+                                                <span style={{ fontSize: 13, opacity: 0.9, color: "#eaeaea" }}>Mode</span>
 
                                                 <div style={{ display: "flex", gap: 8 }}>
                                                     {(["short", "medium", "long", "mixed"] as const).map((m) => (
@@ -694,7 +764,7 @@ export default function Multiplayer() {
                         }}
                     >
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-end" }}>
-                            <div style={{ width: "100%", maxWidth: 860 }}>
+                            <div style={{ width: "100%", maxWidth: 940 }}>
                                 {/* Left side, me */}
                                 <div style={card}>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -716,26 +786,18 @@ export default function Multiplayer() {
                                             marginTop: 18,
                                         }}
                                     >
-                                        <div
-                                            style={{
-                                                padding: "22px 22px",
-                                                borderRadius: 18,
-                                                background: "#222222",
-                                                border: "1px solid #3a3a3a",
-                                                boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-                                            }}
-                                        >
-                                            {prompt ? (
-                                                <PromptBoxTrainingExact
-                                                    prompt={prompt}
-                                                    typedLen={typed.length}
-                                                    caretIndex={typed.length}
-                                                    isTyping={isTyping}
-                                                />
-                                            ) : (
-                                                "(loading prompt...)"
-                                            )}
-                                        </div>
+
+                                        {prompt ? (
+                                            <PromptBoxTrainingExact
+                                                prompt={prompt}
+                                                typedLen={typed.length}
+                                                caretIndex={typed.length}
+                                                isTyping={isTyping}
+                                            />
+                                        ) : (
+                                            "(loading prompt...)"
+                                        )}
+
                                     </div>
 
 
@@ -763,67 +825,46 @@ export default function Multiplayer() {
                         <div style={{ background: "#3b3b3b" }} />
 
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-start" }}>
-                            <div style={{ width: "100%", maxWidth: 860 }}>
+                            <div style={{ width: "100%", maxWidth: 940 }}>
                                 {/* Right side, opponents */}
                                 <div style={card}>
-                                    <h3 style={{ marginTop: 0 }}>Opponents</h3>
+                                    <h3 style={{ marginTop: 0 }}>Opponent</h3>
 
-                                    {room.players.filter((p) => p.pid !== pid).length === 0 && (
+                                    {room.players.filter((p) => p.pid !== pid).length === 0 ? (
                                         <div style={{ opacity: 0.7 }}>Waiting for someone to join…</div>
+                                    ) : (
+                                        room.players
+                                            .filter((p) => p.pid !== pid)
+                                            .slice(0, 1)
+                                            .map((p) => (
+                                                <div
+                                                    style={{
+                                                        marginTop: 18,
+                                                    }}
+                                                >
+                                                    {prompt ? (
+                                                        <PromptBoxTrainingExact
+                                                            prompt={prompt}
+                                                            typedLen={p.cursor}
+                                                            caretIndex={p.cursor}
+                                                            isTyping={true}
+                                                        />
+                                                    ) : (
+                                                        "(loading prompt...)"
+                                                    )}
+                                                </div>
+                                            ))
                                     )}
 
-                                    {room.players
-                                        .filter((p) => p.pid !== pid)
-                                        .map((p) => {
-                                            const prog = prompt.length ? Math.min(1, p.cursor / prompt.length) : 0;
-                                            return (
-                                                <div key={p.pid} style={{ border: "1px solid #3a3a3a", borderRadius: 12, padding: 12, marginBottom: 12 }}>
-                                                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                                        <b>{p.name}</b>
-                                                        <span style={{ fontSize: 14, opacity: 0.8 }}>
-                                                            {p.wpm} wpm · {p.acc}% acc
-                                                        </span>
-                                                    </div>
-
-                                                    <div style={{ height: 10, background: "#2b2b2b", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
-                                                        <div style={{ width: `${prog * 100}%`, height: "100%", background: "#eaeaea" }} />
-                                                    </div>
-
-                                                    <div
-                                                        style={{
-                                                            marginTop: 18,
-                                                            padding: "22px 22px",
-                                                            borderRadius: 18,
-                                                            background: "#222222",
-                                                            border: "1px solid #3a3a3a",
-                                                            boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
-                                                        }}
-                                                    >
-                                                        {prompt ? (
-                                                            <PromptBoxTrainingExact
-                                                                prompt={prompt}
-                                                                typedLen={p.cursor}
-                                                                caretIndex={p.cursor}
-                                                                isTyping={true} 
-                                                            />
-                                                        ) : (
-                                                            "(loading prompt...)"
-                                                        )}
-
-                                                    </div>
-
-                                                </div>
-                                            );
-                                        })}
-
-                                    {/* finish overlay */}
+                                    {/* finish  */}
                                     {status === "FINISHED" && (
-                                        <div style={{ marginTop: 8, padding: 12, borderRadius: 12, border: "1px solid #111" }}>
+                                        <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid #3a3a3a" }}>
                                             <b>Race finished.</b>{" "}
                                             {finishLeft != null ? `Returning to lobby in ${finishLeft}s.` : ""}
                                         </div>
                                     )}
                                 </div>
+
                             </div>
                         </div>
                     </div>

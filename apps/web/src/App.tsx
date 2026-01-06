@@ -170,7 +170,7 @@ export default function App() {
   }
 
   if (screen === "multiplayer") {
-    return <Multiplayer />;
+    return <Multiplayer onExit={() => setScreen("home")}/>;
   }
 
   if (screen === "bots") {
