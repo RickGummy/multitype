@@ -9,8 +9,8 @@ type ClientMsg struct {
 	Cursor     *int   `json:"cursor,omitempty"`
 	Mistakes   *int   `json:"mistakes,omitempty"`
 	Finished   *bool  `json:"finished,omitempty"`
-	Prompt     string `json:"prompt,omitempty"`
-	PromptMode string `json:"prompt,omitempty"`
+
+	PromptMode string `json:"promptMode,omitempty"`
 }
 
 type ServerMsg struct {

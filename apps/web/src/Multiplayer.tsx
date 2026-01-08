@@ -362,6 +362,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const wsRef = useRef<WSClient | null>(null);
     const lastProgressSentAt = useRef<number>(0);
 
+    const finishSentRef = useRef(false);
+
+    const hiddenInputRef = useRef<HTMLInputElement | null>(null);
+
     useEffect(() => {
         const ws = new WSClient((m: WSMsg) => {
             if (m.type === "hello") {
@@ -448,7 +452,12 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
         setPrompt(out.join(" "));
         setTyped("");
+        finishSentRef.current = false;
     }, [room?.seed, room?.promptMode, lists]);
+
+    useEffect(() => {
+
+    })
 
     const canType = room?.status === "RUNNING";
     const me = room?.players.find((p) => p.pid === pid);
@@ -470,7 +479,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         });
         lastProgressSentAt.current = t;
 
-        if (cursor >= prompt.length) {
+        if (cursor >= prompt.length && !finishSentRef.current) {
+            finishSentRef.current = true;
             wsRef.current?.send({ type: "finish", data: {} });
         }
     }, [typed, room, canType]);
@@ -520,42 +530,39 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         return () => window.clearInterval(id);
     }, [finishLeft]);
 
-    const onBack = () => {
-        // go to lobby
-        if (view === "battle" && room?.rid) {
-            wsRef.current?.send({ type: "leave_room", data: {} });
+    const resetLocalRound = () => {
+        setTyped("");
+        setPrompt("");
+        setFinishLeft(null);
+        finishSentRef.current = false;
+    };
 
-            setRoom(null);
-            setIsHost(false);
-            setRidInput("");
-            setTyped("");
-            setPrompt("");
-            setView("lobby");
-            setFinishLeft(null);
-            return;
-        }
-        // go to first page
+    const resetToLobbyScreen = () => {
+        setRoom(null);
+        setIsHost(false);
+        setRidInput("");
+        setView("lobby");
+        resetLocalRound();
+    };
+
+    const onBack = () => {
         if (!room?.rid) {
             onExit();
             return;
         }
-        // go to multiplayer screen
-        wsRef.current?.send({ type: "leave_room", data: {} });
 
-        setRoom(null);
-        setIsHost(false);
-        setRidInput("");
-        setTyped("");
-        setPrompt("");
-        setView("lobby");
-        setFinishLeft(null);
-    };
+        wsRef.current?.send({ type: "leave_room", data: {} });
+        resetToLobbyScreen();
+    }
 
 
     const countdownMs = room ? room.startAtMs - nowMs() : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
 
     function onTypeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+        const tag = (document.activeElement as HTMLElement | null)?.tagName;
+        if (tag === "BUTTON" || tag === "INPUT") return;
+
         if (!room) return;
         if (room.status !== "RUNNING") return;
         if (!prompt) return;
@@ -574,6 +581,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
             return;
         }
 
+        if (e.key === " ") {
+            e.preventDefault();
+        }
+
         if (e.metaKey || e.ctrlKey || e.altKey) return;
 
         const isPrintable = e.key.length === 1;
@@ -585,10 +596,16 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     }
 
     useEffect(() => {
-        if (view === "battle") {
-            setTimeout(() => typeAreaRef.current?.focus(), 0);
+        if (view !== "battle") {
+            return;
         }
-    }, [view]);
+        if (room?.status !== "RUNNING") {
+            return;
+        }
+        const id = window.setTimeout(() => hiddenInputRef.current?.focus(), 0);
+        return () => window.clearTimeout(id);
+    }, [view, room?.status]);
+
 
 
     return (
@@ -777,15 +794,27 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                     </div>
 
                                     <div
-                                        ref={typeAreaRef}
-                                        tabIndex={0}
                                         className="typeArea"
-                                        onKeyDown={onTypeKeyDown}
-                                        onClick={() => typeAreaRef.current?.focus()}
-                                        style={{
-                                            marginTop: 18,
-                                        }}
+                                        onClick={() => hiddenInputRef.current?.focus()}
+                                        style={{ marginTop: 18, cursor: room.status === "RUNNING" ? "text" : "default" }}
                                     >
+                                        <input
+                                            ref={hiddenInputRef}
+                                            value={typed}
+                                            onChange={(e) => {
+                                                // take raw input, clamp to prompt length
+                                                const next = e.target.value.slice(0, prompt.length);
+                                                setTyped(next);
+                                            }}
+                                            disabled={room.status !== "RUNNING"}
+                                            style={{
+                                                position: "absolute",
+                                                opacity: 0,
+                                                pointerEvents: "none",
+                                                height: 0,
+                                                width: 0,
+                                            }}
+                                        />
 
                                         {prompt ? (
                                             <PromptBoxTrainingExact
@@ -797,8 +826,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         ) : (
                                             "(loading prompt...)"
                                         )}
-
                                     </div>
+
 
 
 
@@ -809,7 +838,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             <button
                                                 style={btn}
                                                 onClick={() => {
+                                                    finishSentRef.current = false;
                                                     setTyped("");
+                                                    setPrompt("");
+                                                    wsRef.current?.send({ type: "restart_round", data: { ready: true } });
                                                 }}
                                             >
                                                 Play again
@@ -842,16 +874,23 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                         marginTop: 18,
                                                     }}
                                                 >
-                                                    {prompt ? (
-                                                        <PromptBoxTrainingExact
-                                                            prompt={prompt}
-                                                            typedLen={p.cursor}
-                                                            caretIndex={p.cursor}
-                                                            isTyping={true}
-                                                        />
-                                                    ) : (
-                                                        "(loading prompt...)"
-                                                    )}
+                                                    <div
+                                                        className="typeArea"
+                                                        style={{
+                                                            cursor: "default",
+                                                        }}
+                                                    >
+                                                        {prompt ? (
+                                                            <PromptBoxTrainingExact
+                                                                prompt={prompt}
+                                                                typedLen={p.cursor}
+                                                                caretIndex={p.cursor}
+                                                                isTyping={true}
+                                                            />
+                                                        ) : (
+                                                            "(loading prompt...)"
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ))
                                     )}

@@ -55,8 +55,15 @@ func (r *Room) RemoveClient(pid string) {
 	}
 	delete(r.clients, pid)
 
-	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+	if r.hostPid == pid {
+		r.hostPid = ""
+		for otherPid := range r.clients {
+			r.hostPid = otherPid
+			break
+		}
+	}
 
+	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 }
 
 func (r *Room) SetName(pid, name string) {
@@ -190,6 +197,22 @@ func (r *Room) Finish(pid string) {
 
 	if r.allFinishedLocked() {
 		r.status = "FINISHED"
+		r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+
+		go func(rid string, seed int64) {
+			time.Sleep(10 * time.Second)
+			r.mu.Lock()
+			defer r.mu.Unlock()
+
+			if r.status != "FINISHED" {
+				return
+			}
+
+			r.resetToLobbyLocked()
+			r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data:r.snapshotLocked()})
+		}(r.rid, r.seed)
+
+		return
 	}
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
@@ -238,6 +261,22 @@ func (r *Room) beginCountdownLocked() {
 			r.mu.Unlock()
 		}
 	}()
+}
+
+func (r *Room) resetToLobbyLocked() {
+	r.status = "LOBBY"
+	r.prompt =""
+	r.startAtMs = 0
+	r.seed = 0
+
+	for _, c := range r.clients {
+		c.cursor = 0
+		c.mistakes = 0
+		c.wpm = 0
+		c.acc = 100
+		c.status = "LOBBY"
+		c.ready = false
+	}
 }
 
 func (r *Room) allReadyLocked() bool {
