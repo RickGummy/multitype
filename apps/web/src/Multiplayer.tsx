@@ -320,7 +320,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [name, setName] = useState("Rick");
 
     const [typed, setTyped] = useState("");
-    const typeAreaRef = useRef<HTMLDivElement | null>(null);
+    
 
     const typedRef = useRef(typed);
     useEffect(() => {
@@ -365,6 +365,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const finishSentRef = useRef(false);
 
     const hiddenInputRef = useRef<HTMLInputElement | null>(null);
+    const acceptRoomStateRef = useRef(false);
 
     useEffect(() => {
         const ws = new WSClient((m: WSMsg) => {
@@ -372,6 +373,9 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                 setPid(m.data?.pid ?? "");
             }
             if (m.type === "room_state") {
+                if(!acceptRoomStateRef.current) {
+                    return;
+                }
                 setRoom(m.data);
             }
             if (m.type === "error") {
@@ -455,9 +459,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         finishSentRef.current = false;
     }, [room?.seed, room?.promptMode, lists]);
 
-    useEffect(() => {
-
-    })
 
     const canType = room?.status === "RUNNING";
     const me = room?.players.find((p) => p.pid === pid);
@@ -538,6 +539,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     };
 
     const resetToLobbyScreen = () => {
+        acceptRoomStateRef.current = false;
         setRoom(null);
         setIsHost(false);
         setRidInput("");
@@ -547,10 +549,12 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
     const onBack = () => {
         if (!room?.rid) {
+            acceptRoomStateRef.current = false;
             onExit();
             return;
         }
 
+        acceptRoomStateRef.current = false;
         wsRef.current?.send({ type: "leave_room", data: {} });
         resetToLobbyScreen();
     }
@@ -559,41 +563,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const countdownMs = room ? room.startAtMs - nowMs() : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
 
-    function onTypeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-        const tag = (document.activeElement as HTMLElement | null)?.tagName;
-        if (tag === "BUTTON" || tag === "INPUT") return;
-
-        if (!room) return;
-        if (room.status !== "RUNNING") return;
-        if (!prompt) return;
-
-        if (e.key === "Tab") {
-            e.preventDefault();
-            return;
-        }
-
-        if (e.key === "Backspace") {
-            setTyped((prev) => prev.slice(0, -1));
-            return;
-        }
-
-        if (e.key === "Escape") {
-            return;
-        }
-
-        if (e.key === " ") {
-            e.preventDefault();
-        }
-
-        if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-        const isPrintable = e.key.length === 1;
-        if (!isPrintable) return;
-
-        const prev = typedRef.current;
-        const next = (prev + e.key).slice(0, prompt.length);
-        setTyped(next);
-    }
+   
 
     useEffect(() => {
         if (view !== "battle") {
@@ -664,6 +634,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         <button
                                             style={btn}
                                             onClick={() => {
+                                                acceptRoomStateRef.current = true;
                                                 setIsHost(true);
                                                 wsRef.current?.send({ type: "create_room", data: {} });
                                             }}
@@ -680,6 +651,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         <button
                                             style={btnGhost}
                                             onClick={() => {
+                                                acceptRoomStateRef.current = true;
                                                 setIsHost(false);
                                                 wsRef.current?.send({ type: "join_room", rid: ridInput, data: {} });
                                             }}
@@ -694,7 +666,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
                                         <button
                                             style={amReady ? btn : btnGhost}
-                                            onClick={() => wsRef.current?.send({ type: "ready", data: { ready: !amReady } })}
+                                            onClick={() => {
+                                                acceptRoomStateRef.current = true;
+                                                wsRef.current?.send({ type: "ready", data: { ready: !amReady } })}
+                                            }
                                         >
                                             {amReady ? "Unready" : "Ready"}
                                         </button>
@@ -811,8 +786,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                 position: "absolute",
                                                 opacity: 0,
                                                 pointerEvents: "none",
-                                                height: 0,
-                                                width: 0,
+                                                left: 0,
+                                                top: 0,
+                                                height: 1,
+                                                width: 1,
                                             }}
                                         />
 
@@ -840,7 +817,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                 onClick={() => {
                                                     finishSentRef.current = false;
                                                     setTyped("");
-                                                    setPrompt("");
+                                                    
+                                                    acceptRoomStateRef.current = true;
                                                     wsRef.current?.send({ type: "restart_round", data: { ready: true } });
                                                 }}
                                             >
