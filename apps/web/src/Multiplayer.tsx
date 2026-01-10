@@ -5,7 +5,7 @@ import type { WSMsg } from "./net/ws"
 import type { RoomState } from "./net/types";
 
 const WORD_COUNTS: Record<string, number> = {
-    short: 25,
+    short: 5, // change to 25
     medium: 30,
     long: 30,
     mixed: 40,
@@ -317,10 +317,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [pid, setPid] = useState<string>("");
     const [room, setRoom] = useState<RoomState | null>(null);
     const [ridInput, setRidInput] = useState("");
-    const [name, setName] = useState("Rick");
+    const [name, setName] = useState("");
 
     const [typed, setTyped] = useState("");
-    
+
 
     const typedRef = useRef(typed);
     useEffect(() => {
@@ -357,7 +357,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [isHost, setIsHost] = useState(false);
 
     const [view, setView] = useState<"lobby" | "battle">("lobby");
-    const [finishLeft, setFinishLeft] = useState<number | null>(null);
+
+    const [rematchRequested, setRematchRequested] = useState(false);
 
     const wsRef = useRef<WSClient | null>(null);
     const lastProgressSentAt = useRef<number>(0);
@@ -367,13 +368,14 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const hiddenInputRef = useRef<HTMLInputElement | null>(null);
     const acceptRoomStateRef = useRef(false);
 
+
     useEffect(() => {
         const ws = new WSClient((m: WSMsg) => {
             if (m.type === "hello") {
                 setPid(m.data?.pid ?? "");
             }
             if (m.type === "room_state") {
-                if(!acceptRoomStateRef.current) {
+                if (!acceptRoomStateRef.current) {
                     return;
                 }
                 setRoom(m.data);
@@ -457,12 +459,18 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         setPrompt(out.join(" "));
         setTyped("");
         finishSentRef.current = false;
+
+        setRematchRequested(false);
     }, [room?.seed, room?.promptMode, lists]);
 
 
     const canType = room?.status === "RUNNING";
     const me = room?.players.find((p) => p.pid === pid);
     const amReady = me?.ready ?? false;
+
+    const myStatus = me?.status ?? "NONE";
+    const opponent = room?.players.find((p) => p.pid !== pid);
+    const oppStatus = opponent?.status ?? "NONE";
 
     useEffect(() => {
         if (!room || !canType || !prompt) {
@@ -487,6 +495,31 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     }, [typed, room, canType]);
 
     const status = room?.status ?? "NONE";
+    const allFinished = room?.players?.length ? room.players.every((p) => p.status === "FINISHED") : false;
+
+    const [clockNow, setClockNow] = useState(() => nowMs());
+
+    useEffect(() => {
+        if(!room) return;
+
+        if(room.status !== "COUNTDOWN") return;
+
+        const id = window.setInterval(() => {
+            setClockNow(nowMs());
+        }, 50);
+
+        return () => window.clearInterval(id);
+    }, [room?.status, room?.rid]);
+
+    useEffect(() => {
+        if (view !== "battle") return;
+        if (!room) return;
+        if (room.status !== "RUNNING") return;
+      
+        const id = window.setTimeout(() => hiddenInputRef.current?.focus(), 0);
+        return () => window.clearTimeout(id);
+      }, [view, room?.status, room?.rid]);
+      
 
     useEffect(() => {
         if (!room) {
@@ -496,46 +529,24 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
         if (room.status === "LOBBY") {
             setView("lobby");
-            setFinishLeft(null);
             return;
         }
 
         if (room.status === "COUNTDOWN" || room.status === "RUNNING") {
             setView("battle");
-            setFinishLeft(null);
             return;
         }
 
         if (room.status === "FINISHED") {
             setView("battle");
-            setFinishLeft(10);
         }
     }, [room?.rid, room?.status]);
 
-    useEffect(() => {
-        if (finishLeft == null) {
-            return;
-        }
-
-        if (finishLeft <= 0) {
-            setView("lobby");
-            setFinishLeft(null);
-            setTyped("");
-            return;
-        }
-
-        const id = window.setInterval(() => {
-            setFinishLeft((x) => (x == null ? x : x - 1));
-        }, 1000);
-
-        return () => window.clearInterval(id);
-    }, [finishLeft]);
 
     const resetLocalRound = () => {
         setTyped("");
-        setPrompt("");
-        setFinishLeft(null);
         finishSentRef.current = false;
+        setRematchRequested(false);
     };
 
     const resetToLobbyScreen = () => {
@@ -548,6 +559,11 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     };
 
     const onBack = () => {
+        if (view === "battle") {
+            setView("lobby");
+            return;
+        }
+
         if (!room?.rid) {
             acceptRoomStateRef.current = false;
             onExit();
@@ -560,21 +576,12 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     }
 
 
-    const countdownMs = room ? room.startAtMs - nowMs() : 0;
+    const countdownMs = room ? room.startAtMs - clockNow : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
 
-   
 
-    useEffect(() => {
-        if (view !== "battle") {
-            return;
-        }
-        if (room?.status !== "RUNNING") {
-            return;
-        }
-        const id = window.setTimeout(() => hiddenInputRef.current?.focus(), 0);
-        return () => window.clearTimeout(id);
-    }, [view, room?.status]);
+
+
 
 
 
@@ -619,6 +626,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                 <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                     <span>Name</span>
                                     <input
+                                        placeholder="Rick"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
                                         style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "#eaeaea", outline: "none", }}
@@ -668,7 +676,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             style={amReady ? btn : btnGhost}
                                             onClick={() => {
                                                 acceptRoomStateRef.current = true;
-                                                wsRef.current?.send({ type: "ready", data: { ready: !amReady } })}
+                                                wsRef.current?.send({ type: "ready", data: { ready: !amReady } })
+                                            }
                                             }
                                         >
                                             {amReady ? "Unready" : "Ready"}
@@ -756,15 +765,16 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                         }}
                     >
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-end" }}>
-                            <div style={{ width: "100%", maxWidth: 940 }}>
+                            <div style={{ width: "100%", maxWidth: 560 }}>
                                 {/* Left side, me */}
                                 <div style={card}>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                                         <h3 style={{ margin: 0 }}>You</h3>
+
                                         <div style={{ fontSize: 14, opacity: 0.8 }}>
                                             {status === "COUNTDOWN" ? `Starting in ${startsInSec}s` : ""}
-                                            {status === "RUNNING" ? "Go!" : ""}
-                                            {status === "FINISHED" ? "Finished" : ""}
+                                            {status === "RUNNING" && myStatus !== "FINISHED" ? "Go!" : ""}
+                                            {myStatus === "FINISHED" ? "Finished" : ""}
                                         </div>
                                     </div>
 
@@ -806,23 +816,28 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                     </div>
 
 
+                                    <div style={{ fontSize: 14, opacity: 0.8 }}>
 
+                                        {myStatus === "FINISHED" ? "Finished" : ""}
+                                    </div>
 
 
                                     <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
 
-                                        {room.status === "FINISHED" && (
+                                        {room.status === "FINISHED" && allFinished && (
                                             <button
                                                 style={btn}
+                                                disabled={rematchRequested}
                                                 onClick={() => {
+                                                    setRematchRequested(true);
                                                     finishSentRef.current = false;
                                                     setTyped("");
+
                                                     
-                                                    acceptRoomStateRef.current = true;
                                                     wsRef.current?.send({ type: "restart_round", data: { ready: true } });
                                                 }}
                                             >
-                                                Play again
+                                                {rematchRequested ? "Waiting for opponent..." : "Play again"}
                                             </button>
                                         )}
 
@@ -832,10 +847,10 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                         </div>
 
                         {/* border */}
-                        <div style={{ background: "#3b3b3b" }} />
+                        <div style={{ background: "#3a3a3a" }} />
 
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-start" }}>
-                            <div style={{ width: "100%", maxWidth: 940 }}>
+                            <div style={{ width: "100%", maxWidth: 560 }}>
                                 {/* Right side, opponents */}
                                 <div style={card}>
                                     <h3 style={{ marginTop: 0 }}>Opponent</h3>
@@ -873,11 +888,14 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             ))
                                     )}
 
+                                    <div style={{ fontSize: 14, opacity: 0.8, marginTop: 6 }}>
+                                        {oppStatus === "FINISHED" ? "Finished" : ""}
+                                    </div>
+
                                     {/* finish  */}
                                     {status === "FINISHED" && (
                                         <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid #3a3a3a" }}>
                                             <b>Race finished.</b>{" "}
-                                            {finishLeft != null ? `Returning to lobby in ${finishLeft}s.` : ""}
                                         </div>
                                     )}
                                 </div>
