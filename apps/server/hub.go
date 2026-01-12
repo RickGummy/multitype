@@ -31,7 +31,9 @@ func (h *Hub) CreateRoom(owner *Client) *Room {
 	h.rooms[rid] = room
 	log.Printf("room created rid=%s", rid)
 
+	owner.name = normalizeName(owner.name)
 	room.AddClient(owner)
+	
 	return room
 }
 
@@ -44,6 +46,7 @@ func (h *Hub) JoinRoom(rid string, c *Client) (*Room, bool) {
 		return nil, false
 	}
 
+	c.name = normalizeName(c.name)
 	room.AddClient(c)
 
 	return room, true

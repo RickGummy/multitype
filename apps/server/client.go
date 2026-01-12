@@ -32,7 +32,7 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 		pid:  newID(8),
 		send: make(chan ServerMsg, 64),
 
-		name: "Guest",
+		name: "",
 		acc:  100,
 	}
 }
@@ -111,9 +111,6 @@ func (c *Client) handle(m ClientMsg) {
 	switch m.Type {
 
 	case "set_name":
-		if m.Name == "" {
-			return
-		}
 		c.name = m.Name
 		if c.roomID != "" {
 			if room, ok := c.hub.GetRoom(c.roomID); ok {

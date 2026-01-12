@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,12 +40,25 @@ func (r *Room) AddClient(c *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	c.name = normalizeName(c.name)
+
 	r.clients[c.pid] = c
 	c.roomID = r.rid
 	c.status = "LOBBY"
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 }
+
+func normalizeName(name string) string {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return "Guest"
+	}
+	return n
+}
+
+
+
 
 func (r *Room) RemoveClient(pid string) {
 	r.mu.Lock()
@@ -70,8 +84,8 @@ func (r *Room) SetName(pid, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if c, ok := r.clients[pid]; ok && name != "" {
-		c.name = name
+	if c, ok := r.clients[pid]; ok {
+		c.name = normalizeName(name)
 	}
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})

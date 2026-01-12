@@ -144,6 +144,11 @@ function clamp(n: number, lo: number, hi: number) {
     return Math.max(lo, Math.min(hi, n));
 }
 
+function cleanName(raw: string) {
+    const s = raw.trim();
+    return s.length ? s : "Guest";
+}
+
 
 function PromptBoxTrainingExact(props: {
     prompt: string;
@@ -580,9 +585,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
 
 
-
-
-
+    const BATTLE_SHIFT_PX = 225;
 
 
     return (
@@ -633,7 +636,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                     />
                                 </label>
 
-                                <button style={btn} onClick={() => wsRef.current?.send({ type: "set_name", data: { name } })}>
+                                <button style={btn} onClick={() => wsRef.current?.send({ type: "set_name", data: { name: cleanName(name) } })}>
                                     Set name
                                 </button>
 
@@ -644,7 +647,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             onClick={() => {
                                                 acceptRoomStateRef.current = true;
                                                 setIsHost(true);
-                                                wsRef.current?.send({ type: "create_room", data: {} });
+                                                wsRef.current?.send({ type: "create_room", data: { name: cleanName(name) } });
                                             }}
                                         >
                                             Create room
@@ -661,7 +664,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             onClick={() => {
                                                 acceptRoomStateRef.current = true;
                                                 setIsHost(false);
-                                                wsRef.current?.send({ type: "join_room", rid: ridInput, data: {} });
+                                                wsRef.current?.send({ type: "join_room", rid: ridInput, data: {name: cleanName(name)} });
                                             }}
                                         >
                                             Join room
@@ -764,7 +767,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                             height: "calc(100vh - 140px)",
                         }}
                     >
-                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-end" }}>
+                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-end", transform: `translateX(-${BATTLE_SHIFT_PX}px)` }}>
                             <div style={{ width: "100%", maxWidth: 560 }}>
                                 {/* Left side, me */}
                                 <div style={card}>
@@ -804,6 +807,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         />
 
                                         {prompt ? (
+                                            
                                             <PromptBoxTrainingExact
                                                 prompt={prompt}
                                                 typedLen={typed.length}
@@ -849,7 +853,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                         {/* border */}
                         <div style={{ background: "#3a3a3a" }} />
 
-                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-start" }}>
+                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-start",  transform: `translateX(${BATTLE_SHIFT_PX}px)`, }}>
                             <div style={{ width: "100%", maxWidth: 560 }}>
                                 {/* Right side, opponents */}
                                 <div style={card}>
