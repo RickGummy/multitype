@@ -57,8 +57,14 @@ func normalizeName(name string) string {
 	return n
 }
 
+func displayName(s string) string {
+	s = normalizeName(s)
 
-
+	if s == "" {
+		return "Guest"
+	}
+	return s
+}
 
 func (r *Room) RemoveClient(pid string) {
 	r.mu.Lock()
@@ -317,7 +323,7 @@ func (r *Room) snapshotLocked() RoomState {
 	for _, c := range r.clients {
 		players = append(players, PlayerState{
 			Pid:		c.pid,
-			Name:		c.name,
+			Name:		displayName(c.name),
 			Ready:		c.ready,
 			Cursor:		c.cursor,
 			Mistakes:	c.mistakes,
