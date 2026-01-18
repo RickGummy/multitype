@@ -317,6 +317,93 @@ function PromptBoxTrainingExact(props: {
     );
 }
 
+function SharedWpmChart({
+    samples,
+    meName,
+    oppName,
+}: {
+    samples: { t: number; me: number; opp: number }[];
+    meName: string;
+    oppName: string;
+}) {
+    const W = 900;
+    const H = 260;
+    const padL = 44;
+    const padR = 16;
+    const padT = 16;
+    const padB = 32;
+
+    if (samples.length < 2) {
+        return (
+            <div style={{ opacity: 0.75, fontSize: 14 }}>
+                (not enough data yet to draw chart)
+            </div>
+        );
+    }
+
+    const tMax = Math.max(...samples.map(s => s.t), 1);
+    const wMax = Math.max(...samples.map(s => Math.max(s.me, s.opp)), 10);
+
+    const x = (t: number) => padL + (t / tMax) * (W - padL - padR);
+    const y = (w: number) => padT + (1 - w / wMax) * (H - padT - padB);
+
+    const ptsMe = samples.map(s => `${x(s.t).toFixed(2)},${y(s.me).toFixed(2)}`).join(" ");
+    const ptsOp = samples.map(s => `${x(s.t).toFixed(2)},${y(s.opp).toFixed(2)}`).join(" ");
+
+    const gridLines = 4;
+    const grid = Array.from({ length: gridLines + 1 }, (_, i) => i);
+
+    return (
+        <div style={{ width: "100%", overflowX: "auto" }}>
+            <svg width={W} height={H} style={{ display: "block" }}>
+                {/* grid */}
+                {grid.map(i => {
+                    const yy = padT + (i / gridLines) * (H - padT - padB);
+                    return (
+                        <line
+                            key={i}
+                            x1={padL}
+                            x2={W - padR}
+                            y1={yy}
+                            y2={yy}
+                            stroke="#3a3a3a"
+                            strokeWidth={1}
+                        />
+                    );
+                })}
+
+                {/* axes */}
+                <line x1={padL} x2={padL} y1={padT} y2={H - padB} stroke="#6a6a6a" />
+                <line x1={padL} x2={W - padR} y1={H - padB} y2={H - padB} stroke="#6a6a6a" />
+
+                {/* lines */}
+                <polyline fill="none" stroke="#9ad0ff" strokeWidth={2.5} points={ptsMe} />
+                <polyline fill="none" stroke="#ffb3c7" strokeWidth={2.5} points={ptsOp} />
+
+                {/* labels */}
+                <text x={padL} y={H - 10} fill="#cfcfcf" fontSize="12">
+                    time (s)
+                </text>
+                <text x={10} y={padT + 12} fill="#cfcfcf" fontSize="12">
+                    WPM
+                </text>
+
+                <text x={padL} y={padT + 12} fill="#9ad0ff" fontSize="12">
+                    {meName}
+                </text>
+                <text x={padL} y={padT + 28} fill="#ffb3c7" fontSize="12">
+                    {oppName}
+                </text>
+
+                <text x={W - padR - 60} y={padT + 12} fill="#cfcfcf" fontSize="12">
+                    max {Math.round(wMax)}
+                </text>
+            </svg>
+        </div>
+    );
+}
+
+
 
 export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [pid, setPid] = useState<string>("");
@@ -361,7 +448,11 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [prompt, setPrompt] = useState<string>("");
     const [isHost, setIsHost] = useState(false);
 
-    const [view, setView] = useState<"lobby" | "battle">("lobby");
+    const [view, setView] = useState<"lobby" | "battle" | "stats">("lobby");
+
+    type WpmSample = { t: number; me: number; opp: number };
+
+    const [wpmSamples, setWpmSamples] = useState<WpmSample[]>([]);
 
     const [rematchRequested, setRematchRequested] = useState(false);
 
@@ -505,9 +596,9 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [clockNow, setClockNow] = useState(() => nowMs());
 
     useEffect(() => {
-        if(!room) return;
+        if (!room) return;
 
-        if(room.status !== "COUNTDOWN") return;
+        if (room.status !== "COUNTDOWN") return;
 
         const id = window.setInterval(() => {
             setClockNow(nowMs());
@@ -520,11 +611,34 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         if (view !== "battle") return;
         if (!room) return;
         if (room.status !== "RUNNING") return;
-      
+
         const id = window.setTimeout(() => hiddenInputRef.current?.focus(), 0);
         return () => window.clearTimeout(id);
-      }, [view, room?.status, room?.rid]);
-      
+    }, [view, room?.status, room?.rid]);
+
+    useEffect(() => {
+        if (!room) return;
+        if (room.status !== "RUNNING") return;
+
+        const id = window.setInterval(() => {
+            const meP = room.players.find(p => p.pid === pid);
+            const opP = room.players.find(p => p.pid !== pid);
+
+            const t = Math.max(0, (nowMs() - room.startAtMs) / 1000);
+
+            setWpmSamples(prev => {
+                const next = prev.concat({ t, me: meP?.wpm ?? 0, opp: opP?.wpm ?? 0 });
+
+                if (next.length > 600) {
+                    return next.slice(next.length - 600);
+                }
+                return next;
+            });
+        }, 250);
+
+        return () => window.clearInterval(id);
+    }, [room?.status, room?.startAtMs, room?.rid, pid]);
+
 
     useEffect(() => {
         if (!room) {
@@ -543,7 +657,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         }
 
         if (room.status === "FINISHED") {
-            setView("battle");
+            const done = room.players.length > 0 && room.players.every(p => p.status === "FINISHED");
+            setView(done ? "stats" : "battle");
         }
     }, [room?.rid, room?.status]);
 
@@ -664,7 +779,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             onClick={() => {
                                                 acceptRoomStateRef.current = true;
                                                 setIsHost(false);
-                                                wsRef.current?.send({ type: "join_room", rid: ridInput, data: {name: cleanName(name)} });
+                                                wsRef.current?.send({ type: "join_room", rid: ridInput, data: { name: cleanName(name) } });
                                             }}
                                         >
                                             Join room
@@ -807,7 +922,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         />
 
                                         {prompt ? (
-                                            
+
                                             <PromptBoxTrainingExact
                                                 prompt={prompt}
                                                 typedLen={typed.length}
@@ -837,7 +952,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                     finishSentRef.current = false;
                                                     setTyped("");
 
-                                                    
+
                                                     wsRef.current?.send({ type: "restart_round", data: { ready: true } });
                                                 }}
                                             >
@@ -853,7 +968,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                         {/* border */}
                         <div style={{ background: "#3a3a3a" }} />
 
-                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-start",  transform: `translateX(${BATTLE_SHIFT_PX}px)`, }}>
+                        <div style={{ padding: 24, display: "flex", justifyContent: "flex-start", transform: `translateX(${BATTLE_SHIFT_PX}px)`, }}>
                             <div style={{ width: "100%", maxWidth: 560 }}>
                                 {/* Right side, opponents */}
                                 <div style={card}>
@@ -908,6 +1023,56 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                         </div>
                     </div>
                 )}
+
+                {view === "stats" && room && (
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                        <div style={{ width: "100%", maxWidth: 980 }}>
+                            <div style={card}>
+                                <h2 style={{ marginTop: 0 }}>Race Results</h2>
+
+                                <SharedWpmChart
+                                    samples={wpmSamples}
+                                    meName={me?.name ?? "You"}
+                                    oppName={opponent?.name ?? "Opponent"}
+                                />
+
+                                <div style={{ display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+                                    <div style={{ ...card, flex: 1, minWidth: 220 }}>
+                                        <div style={{ fontSize: 12, opacity: 0.8 }}>You</div>
+                                        <div style={{ fontSize: 22, fontWeight: 800 }}>{me?.wpm ?? 0} WPM</div>
+                                        <div style={{ fontSize: 14, opacity: 0.85 }}>{me?.acc ?? 0}% acc</div>
+                                    </div>
+
+                                    <div style={{ ...card, flex: 1, minWidth: 220 }}>
+                                        <div style={{ fontSize: 12, opacity: 0.8 }}>Opponent</div>
+                                        <div style={{ fontSize: 22, fontWeight: 800 }}>{opponent?.wpm ?? 0} WPM</div>
+                                        <div style={{ fontSize: 14, opacity: 0.85 }}>{opponent?.acc ?? 0}% acc</div>
+                                    </div>
+                                </div>
+
+                                <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                    <button
+                                        style={btn}
+                                        disabled={rematchRequested}
+                                        onClick={() => {
+                                            setRematchRequested(true);
+                                            finishSentRef.current = false;
+                                            setTyped("");
+                                            wsRef.current?.send({ type: "restart_round", data: {} });
+                                        }}
+                                    >
+                                        {rematchRequested ? "Waiting for opponent..." : "Play again"}
+                                    </button>
+
+                                    <div style={{ fontSize: 13, opacity: 0.75, alignSelf: "center" }}>
+                                        When both click Play again, you’ll get a new prompt + new countdown.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             </div>
         </div>
 
