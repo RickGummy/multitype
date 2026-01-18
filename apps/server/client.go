@@ -136,6 +136,14 @@ func (c *Client) handle(m ClientMsg) {
 	case "create_room":
 		room := c.hub.CreateRoom(c)
 		c.send <- ServerMsg{Type: "room_joined", Rid: room.rid, Data: map[string]any{"rid": room.rid}}
+	
+	case "restart_round":
+		if c.roomID == "" {
+			return
+		}
+		if room, ok := c.hub.GetRoom(c.roomID); ok {
+			room.RestartRound(c.pid)
+		}
 
 	case "join_room":
 		if m.Rid == "" {
@@ -209,4 +217,28 @@ func (c *Client) cleanup() {
 	close(c.send)
 	_ = c.conn.Close()
 	log.Printf("client disconnected pid=%s", c.pid)
+}
+
+func (r *Room) RestartRound(pid string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.status != "FINISHED" && r.status != "LOBBY" {
+		return
+	}
+
+	if r.status == "FINISHED" {
+		r.resetToLobbyLocked()
+	}
+
+	if c, ok := r.clients[pid]; ok {
+		c.ready = true
+		c.status = "LOBBY"
+	}
+
+	if r.status == "LOBBY" && len(r.clients) >= 2 && r.allReadyLocked() {
+		r.beginCountdownLocked()
+	}
+
+	r.broadcastLocked((ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()}))
 }
