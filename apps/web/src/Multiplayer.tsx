@@ -97,44 +97,11 @@ function nowMs() {
     return Date.now();
 }
 
-function score(prompt: string, typed: string) {
-    const n = Math.min(prompt.length, typed.length);
-    let cursor = 0;
-    let mistakes = 0;
-
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] === typed[i]) {
-            if (mistakes === 0 && cursor === i) {
-                cursor++;
-            }
-        }
-        else {
-            mistakes++;
-        }
-
-        if (mistakes > 0 && cursor < i + 1) {
-
-        }
-    }
-
-    cursor = 0;
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] === typed[i]) {
-            cursor++;
-        }
-        else {
-            break;
-        }
-    }
-
-    mistakes = 0;
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] !== typed[i]) {
-            mistakes++;
-        }
-    }
-    return { cursor, mistakes };
+function computeWpmFromCursor(cursor: number, elapsedMs: number) {
+    const minutes = Math.max(0.001, elapsedMs / 60000);
+    return (cursor / 5) / minutes;
 }
+
 
 function lerp(a: number, b: number, t: number) {
     return a + (b - a) * t;
@@ -155,8 +122,9 @@ function PromptBoxTrainingExact(props: {
     typedLen: number;
     caretIndex: number;
     isTyping: boolean;
+    errorIndex?: number | null;
 }) {
-    const { prompt, typedLen, caretIndex, isTyping } = props;
+    const { prompt, typedLen, caretIndex, isTyping, errorIndex } = props;
 
     const promptBoxRef = useRef<HTMLDivElement | null>(null);
 
@@ -279,9 +247,10 @@ function PromptBoxTrainingExact(props: {
                             const i = start + j;
                             const isTyped = i < typedLen;
 
+                            const isError = errorIndex != null && i === errorIndex;
                             const cls = [
                                 "promptChar",
-                                !isTyped ? "untyped" : "correct",
+                                isError ? "wrong" : (!isTyped ? "untyped" : "correct"),
                             ].join(" ");
 
                             return (
@@ -295,9 +264,10 @@ function PromptBoxTrainingExact(props: {
                             const i = start + word.length;
                             const isTyped = i < typedLen;
 
+                            const isError = errorIndex != null && i === errorIndex;
                             const cls = [
                                 "promptChar",
-                                !isTyped ? "untyped" : "correct",
+                                isError ? "wrong" : (!isTyped ? "untyped" : "correct"),
                             ].join(" ");
 
                             return (
@@ -317,91 +287,160 @@ function PromptBoxTrainingExact(props: {
     );
 }
 
-function SharedWpmChart({
-    samples,
-    meName,
-    oppName,
-}: {
-    samples: { t: number; me: number; opp: number }[];
+function SharedWpmChart(props: {
+    samples: { tSec: number; meWpm: number; oppWpm: number }[];
     meName: string;
     oppName: string;
+    meEndSec?: number | null;
+    oppEndSec?: number | null;
 }) {
-    const W = 900;
-    const H = 260;
-    const padL = 44;
-    const padR = 16;
-    const padT = 16;
-    const padB = 32;
+    const { samples, meName, oppName} = props;
 
-    if (samples.length < 2) {
+
+    const W = 900;
+    const H = 220;
+    const padL = 48;
+    const padR = 16;
+    const padT = 18;
+    const padB = 44;
+
+    const minT = 1;
+    const secAt = (tSec: number) => Math.max(minT, Math.floor(tSec));
+
+    if (!samples || samples.length < 2) {
         return (
-            <div style={{ opacity: 0.75, fontSize: 14 }}>
-                (not enough data yet to draw chart)
+            <div className="card" style={{ minWidth: 0 }}>
+                <div className="cardLabel">Not enough data yet (type longer).</div>
             </div>
         );
     }
 
-    const tMax = Math.max(...samples.map(s => s.t), 1);
-    const wMax = Math.max(...samples.map(s => Math.max(s.me, s.opp)), 10);
+    const maxT = secAt(samples[samples.length - 1].tSec);
+    const tSpan = Math.max(1, maxT - minT);
 
-    const x = (t: number) => padL + (t / tMax) * (W - padL - padR);
-    const y = (w: number) => padT + (1 - w / wMax) * (H - padT - padB);
+    const x0 = padL;
+    const x1 = W - padR;
+    const y0 = H - padB;
+    const y1 = padT;
 
-    const ptsMe = samples.map(s => `${x(s.t).toFixed(2)},${y(s.me).toFixed(2)}`).join(" ");
-    const ptsOp = samples.map(s => `${x(s.t).toFixed(2)},${y(s.opp).toFixed(2)}`).join(" ");
+    const meVals = samples.map((s) => s.meWpm);
+    const oppVals = samples.map((s) => s.oppWpm);
+    const allVals = [...meVals, ...oppVals];
 
-    const gridLines = 4;
-    const grid = Array.from({ length: gridLines + 1 }, (_, i) => i);
+    const maxWpm = Math.max(10, ...allVals);
+    const minWpm = Math.min(1, ...allVals);
+    const span = Math.max(1, maxWpm - minWpm);
+
+    const toX = (t: number) => x0 + ((x1 - x0) * (t - minT)) / tSpan;
+    const toY = (wpm: number) => {
+        const norm = (wpm - minWpm) / span;
+        return y0 - (y0 - y1) * norm;
+    };
+
+    const mePoly = samples
+        .map((s) => {
+            const t = Math.max(minT, secAt(s.tSec));
+            return `${toX(t)},${toY(s.meWpm)}`;
+        })
+        .join(" ");
+
+    const oppPoly = samples
+        .map((s) => {
+            const t = Math.max(minT, secAt(s.tSec));
+            return `${toX(t)},${toY(s.oppWpm)}`;
+        })
+        .join(" ");
+
+    const yTicks = 4;
+    const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
 
     return (
-        <div style={{ width: "100%", overflowX: "auto" }}>
-            <svg width={W} height={H} style={{ display: "block" }}>
-                {/* grid */}
-                {grid.map(i => {
-                    const yy = padT + (i / gridLines) * (H - padT - padB);
+        <div className="card" style={{ minWidth: 0 }}>
+            <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="260">
+                {Array.from({ length: yTicks + 1 }).map((_, i) => {
+                    const frac = i / yTicks;
+                    const y = y0 - (y0 - y1) * frac;
+                    const wpmLabel = (minWpm + span * frac).toFixed(0);
+
                     return (
-                        <line
-                            key={i}
-                            x1={padL}
-                            x2={W - padR}
-                            y1={yy}
-                            y2={yy}
-                            stroke="#3a3a3a"
-                            strokeWidth={1}
-                        />
+                        <g key={`y-${i}`}>
+                            <line x1={x0} x2={x1} y1={y} y2={y} stroke="currentColor" opacity="0.12" />
+                            <text
+                                x={x0 - 8}
+                                y={y + 4}
+                                textAnchor="end"
+                                fontSize="12"
+                                fill="currentColor"
+                                opacity="0.6"
+                            >
+                                {wpmLabel}
+                            </text>
+                        </g>
                     );
                 })}
 
-                {/* axes */}
-                <line x1={padL} x2={padL} y1={padT} y2={H - padB} stroke="#6a6a6a" />
-                <line x1={padL} x2={W - padR} y1={H - padB} y2={H - padB} stroke="#6a6a6a" />
+                {Array.from({ length: Math.floor((maxT - minT) / xTickStep) + 1 }).map((_, i) => {
+                    const t = minT + i * xTickStep;
+                    const x = toX(t);
+                    return (
+                        <g key={`x-${i}`}>
+                            <line x1={x} x2={x} y1={y1} y2={y0} stroke="currentColor" opacity="0.10" />
+                            <text
+                                x={x}
+                                y={y0 + 18}
+                                textAnchor="middle"
+                                fontSize="12"
+                                fill="currentColor"
+                                opacity="0.6"
+                            >
+                                {t}s
+                            </text>
+                        </g>
+                    );
+                })}
 
-                {/* lines */}
-                <polyline fill="none" stroke="#9ad0ff" strokeWidth={2.5} points={ptsMe} />
-                <polyline fill="none" stroke="#ffb3c7" strokeWidth={2.5} points={ptsOp} />
-
-                {/* labels */}
-                <text x={padL} y={H - 10} fill="#cfcfcf" fontSize="12">
-                    time (s)
+                <text
+                    x={(x0 + x1) / 2}
+                    y={H - 10}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fill="currentColor"
+                    opacity="0.75"
+                >
+                    Time (seconds)
                 </text>
-                <text x={10} y={padT + 12} fill="#cfcfcf" fontSize="12">
+                <text
+                    x={14}
+                    y={(y0 + y1) / 2}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fill="currentColor"
+                    opacity="0.75"
+                    transform={`rotate(-90 14 ${(y0 + y1) / 2})`}
+                >
                     WPM
                 </text>
 
-                <text x={padL} y={padT + 12} fill="#9ad0ff" fontSize="12">
+                {/* opponent = blue */}
+                <polyline points={oppPoly} fill="none" stroke="#4da3ff" strokeWidth="3" opacity="0.95" />
+                {/* me = red */}
+                <polyline points={mePoly} fill="none" stroke="#ff4d4d" strokeWidth="3" opacity="0.95" />
+
+                <text x={x0} y={padT + 12} fill="#ff4d4d" fontSize="12">
                     {meName}
                 </text>
-                <text x={padL} y={padT + 28} fill="#ffb3c7" fontSize="12">
+                <text x={x0} y={padT + 28} fill="#4da3ff" fontSize="12">
                     {oppName}
                 </text>
-
-                <text x={W - padR - 60} y={padT + 12} fill="#cfcfcf" fontSize="12">
-                    max {Math.round(wMax)}
-                </text>
             </svg>
+
+            <div className="cardLabel" style={{ marginTop: 6 }}>
+                {samples.length} samples peak {maxWpm.toFixed(1)} WPM
+            </div>
         </div>
     );
 }
+
 
 
 
@@ -412,6 +451,9 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [name, setName] = useState("");
 
     const [typed, setTyped] = useState("");
+
+    const [errorIndex, setErrorIndex] = useState<number | null>(null);
+    const [mistakeCount, setMistakeCount] = useState(0);
 
 
     const typedRef = useRef(typed);
@@ -450,7 +492,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
     const [view, setView] = useState<"lobby" | "battle" | "stats">("lobby");
 
-    type WpmSample = { t: number; me: number; opp: number };
+    type WpmSample = { tSec: number; meWpm: number; oppWpm: number };
 
     const [wpmSamples, setWpmSamples] = useState<WpmSample[]>([]);
 
@@ -464,6 +506,11 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const hiddenInputRef = useRef<HTMLInputElement | null>(null);
     const acceptRoomStateRef = useRef(false);
 
+    const roomRef = useRef<RoomState | null>(null);
+
+    useEffect(() => {
+        roomRef.current = room;
+    }, [room]);
 
     useEffect(() => {
         const ws = new WSClient((m: WSMsg) => {
@@ -554,13 +601,16 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
         setPrompt(out.join(" "));
         setTyped("");
+        setErrorIndex(null);
+        setMistakeCount(0);
+        setWpmSamples([]);
+        setRematchRequested(false);
         finishSentRef.current = false;
 
         setRematchRequested(false);
     }, [room?.seed, room?.promptMode, lists]);
 
 
-    const canType = room?.status === "RUNNING";
     const me = room?.players.find((p) => p.pid === pid);
     const amReady = me?.ready ?? false;
 
@@ -568,30 +618,67 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const opponent = room?.players.find((p) => p.pid !== pid);
     const oppStatus = opponent?.status ?? "NONE";
 
-    useEffect(() => {
-        if (!room || !canType || !prompt) {
-            return;
-        }
-        const t = nowMs();
-        if (t - lastProgressSentAt.current < 120) {
-            return;
-        }
+    const meFinishSecRef = useRef<number | null>(null);
+    const oppFinishSecRef = useRef<number | null>(null);
 
-        const { cursor, mistakes } = score(prompt, typed);
-        wsRef.current?.send({
-            type: "progress",
-            data: { cursor, mistakes },
+    const [finalStats, setFinalStats] = useState<null | {
+        seed: number;
+        meName: string; meWpm: number; meAcc: number;
+        oppName: string; oppWpm: number; oppAcc: number;
+        samples: WpmSample[];
+    }>(null);
+
+    useEffect(() => {
+        if (!room) return;
+        if (room.status !== "FINISHED") return;
+        const done = room.players.length > 0 && room.players.every(p => p.status === "FINISHED");
+        if (!done) return;
+
+        // only snapshot once per round
+        if (finalStats && finalStats.seed === room.seed) return;
+
+        const meP = room.players.find(p => p.pid === pid);
+        const opP = room.players.find(p => p.pid !== pid);
+
+        setFinalStats({
+            seed: room.seed,
+            meName: meP?.name ?? "You",
+            meWpm: meP?.wpm ?? 0,
+            meAcc: meP?.acc ?? 0,
+            oppName: opP?.name ?? "Opponent",
+            oppWpm: opP?.wpm ?? 0,
+            oppAcc: opP?.acc ?? 0,
+            samples: wpmSamples,
         });
+    }, [room?.status, room?.seed, room?.players, pid, wpmSamples, finalStats]);
+
+
+    useEffect(() => {
+        meFinishSecRef.current = null;
+        oppFinishSecRef.current = null;
+    }, [room?.startAtMs, room?.rid]);
+
+    useEffect(() => {
+        if (!room || room.status !== "RUNNING" || !prompt) return;
+
+        const t = nowMs();
+        if (t - lastProgressSentAt.current < 120) return;
+
+        const cursor = typed.length;
+        const mistakes = mistakeCount;
+
+        wsRef.current?.send({ type: "progress", data: { cursor, mistakes } });
         lastProgressSentAt.current = t;
 
-        if (cursor >= prompt.length && !finishSentRef.current) {
+        if (cursor >= prompt.length && errorIndex == null && !finishSentRef.current) {
             finishSentRef.current = true;
             wsRef.current?.send({ type: "finish", data: {} });
         }
-    }, [typed, room, canType]);
+
+    }, [typed, mistakeCount, errorIndex, room?.status, room?.rid, prompt]);
+
 
     const status = room?.status ?? "NONE";
-    const allFinished = room?.players?.length ? room.players.every((p) => p.status === "FINISHED") : false;
 
     const [clockNow, setClockNow] = useState(() => nowMs());
 
@@ -617,27 +704,48 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     }, [view, room?.status, room?.rid]);
 
     useEffect(() => {
-        if (!room) return;
-        if (room.status !== "RUNNING") return;
-
+        if (!room || room.status !== "RUNNING") return;
+      
+        const startMs = room.startAtMs;
+        setWpmSamples([]);
+      
+        let lastSec = -1;
+      
         const id = window.setInterval(() => {
-            const meP = room.players.find(p => p.pid === pid);
-            const opP = room.players.find(p => p.pid !== pid);
-
-            const t = Math.max(0, (nowMs() - room.startAtMs) / 1000);
-
-            setWpmSamples(prev => {
-                const next = prev.concat({ t, me: meP?.wpm ?? 0, opp: opP?.wpm ?? 0 });
-
-                if (next.length > 600) {
-                    return next.slice(next.length - 600);
-                }
-                return next;
-            });
-        }, 250);
-
+          const r = roomRef.current;
+          if (!r) return;
+      
+          const tSec = (nowMs() - startMs) / 1000;
+          const sec = Math.max(1, Math.floor(tSec));
+          if (sec === lastSec) return;
+          lastSec = sec;
+      
+          const meP = r.players.find(p => p.pid === pid);
+          const opP = r.players.find(p => p.pid !== pid);
+      
+          const elapsedMs = nowMs() - startMs;
+      
+          const meCursor = meP?.cursor ?? 0;
+          const opCursor = opP?.cursor ?? 0;
+      
+          const meWpm =
+            meP?.status === "FINISHED"
+              ? (meP.wpm ?? 0)
+              : computeWpmFromCursor(meCursor, elapsedMs);
+      
+          const oppWpm =
+            opP?.status === "FINISHED"
+              ? (opP.wpm ?? 0)
+              : computeWpmFromCursor(opCursor, elapsedMs);
+      
+          setWpmSamples(prev => [...prev, { tSec: sec, meWpm, oppWpm }]);
+        }, 50);
+      
         return () => window.clearInterval(id);
-    }, [room?.status, room?.startAtMs, room?.rid, pid]);
+      }, [room?.status, room?.startAtMs, pid]);
+      
+
+
 
 
     useEffect(() => {
@@ -645,6 +753,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
             setView("lobby");
             return;
         }
+
+        if (view === "stats") return;
 
         if (room.status === "LOBBY") {
             setView("lobby");
@@ -684,14 +794,23 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
             return;
         }
 
-        if (!room?.rid) {
+        if (room?.rid) {
             acceptRoomStateRef.current = false;
+            wsRef.current?.send({ type: "leave_room", data: {} });
+            setRoom(null);
+            setIsHost(false);
+            setRidInput("");
+            setPrompt("");
+            setTyped("");
+            setWpmSamples([]);
+            setRematchRequested(false);
+            finishSentRef.current = false;
+
             onExit();
             return;
         }
 
         acceptRoomStateRef.current = false;
-        wsRef.current?.send({ type: "leave_room", data: {} });
         resetToLobbyScreen();
     }
 
@@ -904,10 +1023,52 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         <input
                                             ref={hiddenInputRef}
                                             value={typed}
-                                            onChange={(e) => {
-                                                // take raw input, clamp to prompt length
-                                                const next = e.target.value.slice(0, prompt.length);
-                                                setTyped(next);
+                                            readOnly
+                                            onKeyDown={(e) => {
+                                                if (!room) return;
+                                                if (room.status !== "RUNNING") return;
+                                                if (!prompt) return;
+
+                                                if (e.key === "Tab") { e.preventDefault(); return; }
+                                                if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+                                                if (e.key === "Backspace") {
+                                                    e.preventDefault();
+                                                    if (errorIndex != null) {
+                                                        setErrorIndex(null);
+                                                        setTyped((prev) => prev.slice(0, -1));
+                                                        return;
+                                                    }
+                                                    setTyped((prev) => prev.slice(0, -1));
+
+                                                    return;
+                                                }
+
+                                                if (e.key === " ") e.preventDefault();
+
+                                                const isPrintable = e.key.length === 1;
+                                                if (!isPrintable) return;
+
+                                                if (errorIndex != null && typed.length > errorIndex) {
+                                                    e.preventDefault();
+                                                    return;
+                                                }
+
+                                                const i = typedRef.current.length;
+                                                if (i >= prompt.length) return;
+
+                                                const expected = prompt[i];
+                                                const got = e.key;
+
+                                                if (got !== expected) {
+                                                    setTyped(prev => prev + got)
+                                                    setErrorIndex(i);
+                                                    setMistakeCount((x) => x + 1);
+                                                    return;
+                                                }
+
+                                                e.preventDefault();
+                                                setTyped((prev) => (prev + got).slice(0, prompt.length));
                                             }}
                                             disabled={room.status !== "RUNNING"}
                                             style={{
@@ -928,6 +1089,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                 typedLen={typed.length}
                                                 caretIndex={typed.length}
                                                 isTyping={isTyping}
+                                                errorIndex={errorIndex}
                                             />
                                         ) : (
                                             "(loading prompt...)"
@@ -941,26 +1103,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                     </div>
 
 
-                                    <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
 
-                                        {room.status === "FINISHED" && allFinished && (
-                                            <button
-                                                style={btn}
-                                                disabled={rematchRequested}
-                                                onClick={() => {
-                                                    setRematchRequested(true);
-                                                    finishSentRef.current = false;
-                                                    setTyped("");
-
-
-                                                    wsRef.current?.send({ type: "restart_round", data: { ready: true } });
-                                                }}
-                                            >
-                                                {rematchRequested ? "Waiting for opponent..." : "Play again"}
-                                            </button>
-                                        )}
-
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1034,6 +1177,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                     samples={wpmSamples}
                                     meName={me?.name ?? "You"}
                                     oppName={opponent?.name ?? "Opponent"}
+                                    meEndSec={meFinishSecRef.current}
+                                    oppEndSec={oppFinishSecRef.current}
                                 />
 
                                 <div style={{ display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
