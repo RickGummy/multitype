@@ -294,8 +294,8 @@ function SharedWpmChart(props: {
     meEndSec?: number | null;
     oppEndSec?: number | null;
 }) {
-    const { samples, meName, oppName } = props;
-    
+    const { samples, meName, oppName} = props;
+
 
     const W = 900;
     const H = 220;
@@ -495,7 +495,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     type WpmSample = { tSec: number; meWpm: number; oppWpm: number };
 
     const [wpmSamples, setWpmSamples] = useState<WpmSample[]>([]);
-
 
     const [rematchRequested, setRematchRequested] = useState(false);
 
