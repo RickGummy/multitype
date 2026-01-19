@@ -83,6 +83,10 @@ func (r *Room) RemoveClient(pid string) {
 		}
 	}
 
+	if len(r.clients) > 0 {
+        r.resetToLobbyLocked()
+    }
+
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 }
 
@@ -219,19 +223,6 @@ func (r *Room) Finish(pid string) {
 		r.status = "FINISHED"
 		r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 
-		go func(rid string, seed int64) {
-			time.Sleep(10 * time.Second)
-			r.mu.Lock()
-			defer r.mu.Unlock()
-
-			if r.status != "FINISHED" {
-				return
-			}
-
-			r.resetToLobbyLocked()
-			r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data:r.snapshotLocked()})
-		}(r.rid, r.seed)
-
 		return
 	}
 
@@ -323,7 +314,12 @@ func (r *Room) snapshotLocked() RoomState {
 	for _, c := range r.clients {
 		players = append(players, PlayerState{
 			Pid:		c.pid,
-			Name:		displayName(c.name),
+			Name:		func() string {
+				if c.name == "" {
+					return "Guest"
+				}
+				return c.name
+			}(),
 			Ready:		c.ready,
 			Cursor:		c.cursor,
 			Mistakes:	c.mistakes,
@@ -363,4 +359,32 @@ func (r *Room) IsEmpty() bool {
 	defer r.mu.Unlock()
 
 	return len(r.clients) == 0
+}
+
+func (r *Room) RestartRound(pid string) {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+
+    if r.status != "FINISHED" && r.status != "LOBBY" {
+        return
+    }
+
+    if c, ok := r.clients[pid]; ok {
+        c.ready = true
+    }
+
+    if r.status == "FINISHED" {
+        if len(r.clients) >= 2 && r.allReadyLocked() {
+            r.resetToLobbyLocked()
+            r.beginCountdownLocked()
+        }
+        r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+        return
+    }
+
+    if r.status == "LOBBY" && len(r.clients) >= 2 && r.allReadyLocked() {
+        r.beginCountdownLocked()
+    }
+
+    r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 }
