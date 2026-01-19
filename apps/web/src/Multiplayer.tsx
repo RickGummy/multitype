@@ -102,44 +102,6 @@ function computeWpmFromCursor(cursor: number, elapsedMs: number) {
     return (cursor / 5) / minutes;
 }
 
-function score(prompt: string, typed: string) {
-    const n = Math.min(prompt.length, typed.length);
-    let cursor = 0;
-    let mistakes = 0;
-
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] === typed[i]) {
-            if (mistakes === 0 && cursor === i) {
-                cursor++;
-            }
-        }
-        else {
-            mistakes++;
-        }
-
-        if (mistakes > 0 && cursor < i + 1) {
-
-        }
-    }
-
-    cursor = 0;
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] === typed[i]) {
-            cursor++;
-        }
-        else {
-            break;
-        }
-    }
-
-    mistakes = 0;
-    for (let i = 0; i < n; i++) {
-        if (prompt[i] !== typed[i]) {
-            mistakes++;
-        }
-    }
-    return { cursor, mistakes };
-}
 
 function lerp(a: number, b: number, t: number) {
     return a + (b - a) * t;
@@ -332,10 +294,8 @@ function SharedWpmChart(props: {
     meEndSec?: number | null;
     oppEndSec?: number | null;
 }) {
-    const { samples, meName, oppName, meEndSec, oppEndSec } = props;
-    const meSamples = meEndSec != null ? samples.filter(s => s.tSec <= meEndSec) : samples;
-    const oppSamples = oppEndSec != null ? samples.filter(s => s.tSec <= oppEndSec) : samples;
-
+    const { samples, meName, oppName } = props;
+    
 
     const W = 900;
     const H = 220;
@@ -536,7 +496,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
     const [wpmSamples, setWpmSamples] = useState<WpmSample[]>([]);
 
-    const lastSampleSecRef = useRef<number>(0);
 
     const [rematchRequested, setRematchRequested] = useState(false);
 
@@ -653,7 +612,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     }, [room?.seed, room?.promptMode, lists]);
 
 
-    const canType = room?.status === "RUNNING";
     const me = room?.players.find((p) => p.pid === pid);
     const amReady = me?.ready ?? false;
 
