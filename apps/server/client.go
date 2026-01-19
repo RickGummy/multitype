@@ -117,7 +117,7 @@ func (c *Client) handle(m ClientMsg) {
 				room.SetName(c.pid, c.name)
 			}
 		}
-	
+
 	case "set_prompt_mode":
 		if c.roomID == "" || m.PromptMode == "" {
 			return
@@ -134,9 +134,15 @@ func (c *Client) handle(m ClientMsg) {
 		room.SetPromptMode(m.PromptMode)
 
 	case "create_room":
+		if m.Name != "" {
+			c.name = m.Name
+		}
 		room := c.hub.CreateRoom(c)
+		if c.name != "" {
+			room.SetName(c.pid, c.name)
+		}
 		c.send <- ServerMsg{Type: "room_joined", Rid: room.rid, Data: map[string]any{"rid": room.rid}}
-	
+
 	case "restart_round":
 		if c.roomID == "" {
 			return
@@ -155,6 +161,11 @@ func (c *Client) handle(m ClientMsg) {
 		if !ok {
 			c.send <- ServerMsg{Type: "error", Err: "room not found"}
 			return
+		}
+
+		if m.Name != "" {
+			c.name = m.Name
+			room.SetName(c.pid, c.name)
 		}
 
 		c.send <- ServerMsg{Type: "room_joined", Rid: room.rid, Data: map[string]any{"rid": room.rid}}
@@ -217,28 +228,4 @@ func (c *Client) cleanup() {
 	close(c.send)
 	_ = c.conn.Close()
 	log.Printf("client disconnected pid=%s", c.pid)
-}
-
-func (r *Room) RestartRound(pid string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.status != "FINISHED" && r.status != "LOBBY" {
-		return
-	}
-
-	if r.status == "FINISHED" {
-		r.resetToLobbyLocked()
-	}
-
-	if c, ok := r.clients[pid]; ok {
-		c.ready = true
-		c.status = "LOBBY"
-	}
-
-	if r.status == "LOBBY" && len(r.clients) >= 2 && r.allReadyLocked() {
-		r.beginCountdownLocked()
-	}
-
-	r.broadcastLocked((ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()}))
 }
