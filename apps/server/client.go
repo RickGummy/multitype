@@ -157,9 +157,9 @@ func (c *Client) handle(m ClientMsg) {
 			return
 		}
 
-		room, ok := c.hub.JoinRoom(m.Rid, c)
-		if !ok {
-			c.send <- ServerMsg{Type: "error", Err: "room not found"}
+		room, errStr := c.hub.JoinRoom(m.Rid, c)
+		if errStr != "" {
+			c.send <- ServerMsg{Type: "error", Err: errStr}
 			return
 		}
 

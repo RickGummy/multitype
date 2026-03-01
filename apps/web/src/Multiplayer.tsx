@@ -287,15 +287,15 @@ function PromptBoxTrainingExact(props: {
     );
 }
 
-function SharedWpmChart(props: {
-    samples: { tSec: number; meWpm: number; oppWpm: number }[];
-    meName: string;
-    oppName: string;
-    meEndSec?: number | null;
-    oppEndSec?: number | null;
-}) {
-    const { samples, meName, oppName} = props;
+const RACER_COLORS = ["#ff4d4d", "#4da3ff", "#4ade80"] as const;
 
+type WpmSample = { tSec: number; wpm: Record<string, number> };
+
+function SharedWpmChart(props: {
+    samples: WpmSample[];
+    players: { pid: string; name: string; color: string }[];
+}) {
+    const { samples, players } = props;
 
     const W = 900;
     const H = 220;
@@ -323,33 +323,13 @@ function SharedWpmChart(props: {
     const y0 = H - padB;
     const y1 = padT;
 
-    const meVals = samples.map((s) => s.meWpm);
-    const oppVals = samples.map((s) => s.oppWpm);
-    const allVals = [...meVals, ...oppVals];
-
+    const allVals = samples.flatMap((s) => Object.values(s.wpm));
     const maxWpm = Math.max(10, ...allVals);
     const minWpm = Math.min(1, ...allVals);
     const span = Math.max(1, maxWpm - minWpm);
 
     const toX = (t: number) => x0 + ((x1 - x0) * (t - minT)) / tSpan;
-    const toY = (wpm: number) => {
-        const norm = (wpm - minWpm) / span;
-        return y0 - (y0 - y1) * norm;
-    };
-
-    const mePoly = samples
-        .map((s) => {
-            const t = Math.max(minT, secAt(s.tSec));
-            return `${toX(t)},${toY(s.meWpm)}`;
-        })
-        .join(" ");
-
-    const oppPoly = samples
-        .map((s) => {
-            const t = Math.max(minT, secAt(s.tSec));
-            return `${toX(t)},${toY(s.oppWpm)}`;
-        })
-        .join(" ");
+    const toY = (wpm: number) => y0 - (y0 - y1) * ((wpm - minWpm) / span);
 
     const yTicks = 4;
     const xTickStep = maxT <= 15 ? 1 : maxT <= 40 ? 2 : maxT <= 90 ? 5 : 10;
@@ -360,20 +340,11 @@ function SharedWpmChart(props: {
                 {Array.from({ length: yTicks + 1 }).map((_, i) => {
                     const frac = i / yTicks;
                     const y = y0 - (y0 - y1) * frac;
-                    const wpmLabel = (minWpm + span * frac).toFixed(0);
-
                     return (
                         <g key={`y-${i}`}>
                             <line x1={x0} x2={x1} y1={y} y2={y} stroke="currentColor" opacity="0.12" />
-                            <text
-                                x={x0 - 8}
-                                y={y + 4}
-                                textAnchor="end"
-                                fontSize="12"
-                                fill="currentColor"
-                                opacity="0.6"
-                            >
-                                {wpmLabel}
+                            <text x={x0 - 8} y={y + 4} textAnchor="end" fontSize="12" fill="currentColor" opacity="0.6">
+                                {(minWpm + span * frac).toFixed(0)}
                             </text>
                         </g>
                     );
@@ -385,57 +356,39 @@ function SharedWpmChart(props: {
                     return (
                         <g key={`x-${i}`}>
                             <line x1={x} x2={x} y1={y1} y2={y0} stroke="currentColor" opacity="0.10" />
-                            <text
-                                x={x}
-                                y={y0 + 18}
-                                textAnchor="middle"
-                                fontSize="12"
-                                fill="currentColor"
-                                opacity="0.6"
-                            >
+                            <text x={x} y={y0 + 18} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.6">
                                 {t}s
                             </text>
                         </g>
                     );
                 })}
 
-                <text
-                    x={(x0 + x1) / 2}
-                    y={H - 10}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fill="currentColor"
-                    opacity="0.75"
-                >
+                <text x={(x0 + x1) / 2} y={H - 10} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.75">
                     Time (seconds)
                 </text>
-                <text
-                    x={14}
-                    y={(y0 + y1) / 2}
-                    textAnchor="middle"
-                    fontSize="12"
-                    fill="currentColor"
-                    opacity="0.75"
-                    transform={`rotate(-90 14 ${(y0 + y1) / 2})`}
-                >
+                <text x={14} y={(y0 + y1) / 2} textAnchor="middle" fontSize="12" fill="currentColor" opacity="0.75" transform={`rotate(-90 14 ${(y0 + y1) / 2})`}>
                     WPM
                 </text>
 
-                {/* opponent = blue */}
-                <polyline points={oppPoly} fill="none" stroke="#4da3ff" strokeWidth="3" opacity="0.95" />
-                {/* me = red */}
-                <polyline points={mePoly} fill="none" stroke="#ff4d4d" strokeWidth="3" opacity="0.95" />
+                {players.map((p) => {
+                    const poly = samples
+                        .map((s) => {
+                            const t = Math.max(minT, secAt(s.tSec));
+                            return `${toX(t)},${toY(s.wpm[p.pid] ?? 0)}`;
+                        })
+                        .join(" ");
+                    return <polyline key={p.pid} points={poly} fill="none" stroke={p.color} strokeWidth="3" opacity="0.95" />;
+                })}
 
-                <text x={x0} y={padT + 12} fill="#ff4d4d" fontSize="12">
-                    {meName}
-                </text>
-                <text x={x0} y={padT + 28} fill="#4da3ff" fontSize="12">
-                    {oppName}
-                </text>
+                {players.map((p, i) => (
+                    <text key={p.pid} x={x0} y={padT + 14 + i * 16} fill={p.color} fontSize="12">
+                        {p.name}
+                    </text>
+                ))}
             </svg>
 
             <div className="cardLabel" style={{ marginTop: 6 }}>
-                {samples.length} samples peak {maxWpm.toFixed(1)} WPM
+                {samples.length} samples · peak {maxWpm.toFixed(1)} WPM
             </div>
         </div>
     );
@@ -453,6 +406,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [typed, setTyped] = useState("");
 
     const [errorIndex, setErrorIndex] = useState<number | null>(null);
+    const errorIndexRef = useRef<number | null>(null);
     const [mistakeCount, setMistakeCount] = useState(0);
 
 
@@ -492,11 +446,11 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
     const [view, setView] = useState<"lobby" | "battle" | "stats">("lobby");
 
-    type WpmSample = { tSec: number; meWpm: number; oppWpm: number };
-
     const [wpmSamples, setWpmSamples] = useState<WpmSample[]>([]);
 
     const [rematchRequested, setRematchRequested] = useState(false);
+    const [showGoOverlay, setShowGoOverlay] = useState(false);
+    const prevStatusRef = useRef<string | null>(null);
 
     const wsRef = useRef<WSClient | null>(null);
     const lastProgressSentAt = useRef<number>(0);
@@ -601,6 +555,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
         setPrompt(out.join(" "));
         setTyped("");
+        errorIndexRef.current = null;
         setErrorIndex(null);
         setMistakeCount(0);
         setWpmSamples([]);
@@ -615,11 +570,17 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const amReady = me?.ready ?? false;
 
     const myStatus = me?.status ?? "NONE";
-    const opponent = room?.players.find((p) => p.pid !== pid);
-    const oppStatus = opponent?.status ?? "NONE";
+    const opponents = room?.players.filter((p) => p.pid !== pid) ?? [];
 
-    const meFinishSecRef = useRef<number | null>(null);
-    const oppFinishSecRef = useRef<number | null>(null);
+    // Assign stable colors: me=red, opp1=blue, opp2=green
+    const playerLines = room ? [
+        { pid, color: RACER_COLORS[0], name: me?.name || "You" },
+        ...opponents.map((p, i) => ({
+            pid: p.pid,
+            color: RACER_COLORS[i + 1] ?? RACER_COLORS[1],
+            name: p.name || `Racer ${i + 2}`,
+        })),
+    ] : [];
 
     const [finalStats, setFinalStats] = useState<null | {
         seed: number;
@@ -654,11 +615,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
 
     useEffect(() => {
-        meFinishSecRef.current = null;
-        oppFinishSecRef.current = null;
-    }, [room?.startAtMs, room?.rid]);
-
-    useEffect(() => {
         if (!room || room.status !== "RUNNING" || !prompt) return;
 
         const t = nowMs();
@@ -678,8 +634,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     }, [typed, mistakeCount, errorIndex, room?.status, room?.rid, prompt]);
 
 
-    const status = room?.status ?? "NONE";
-
     const [clockNow, setClockNow] = useState(() => nowMs());
 
     useEffect(() => {
@@ -693,6 +647,18 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
         return () => window.clearInterval(id);
     }, [room?.status, room?.rid]);
+
+    // Show "GO!" overlay briefly when COUNTDOWN → RUNNING transition fires
+    useEffect(() => {
+        if (!room) return;
+        const prev = prevStatusRef.current;
+        prevStatusRef.current = room.status;
+        if (prev === "COUNTDOWN" && room.status === "RUNNING") {
+            setShowGoOverlay(true);
+            const t = window.setTimeout(() => setShowGoOverlay(false), 800);
+            return () => window.clearTimeout(t);
+        }
+    }, [room?.status]);
 
     useEffect(() => {
         if (view !== "battle") return;
@@ -714,31 +680,21 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         const id = window.setInterval(() => {
           const r = roomRef.current;
           if (!r) return;
-      
+
           const tSec = (nowMs() - startMs) / 1000;
           const sec = Math.max(1, Math.floor(tSec));
           if (sec === lastSec) return;
           lastSec = sec;
-      
-          const meP = r.players.find(p => p.pid === pid);
-          const opP = r.players.find(p => p.pid !== pid);
-      
+
           const elapsedMs = nowMs() - startMs;
-      
-          const meCursor = meP?.cursor ?? 0;
-          const opCursor = opP?.cursor ?? 0;
-      
-          const meWpm =
-            meP?.status === "FINISHED"
-              ? (meP.wpm ?? 0)
-              : computeWpmFromCursor(meCursor, elapsedMs);
-      
-          const oppWpm =
-            opP?.status === "FINISHED"
-              ? (opP.wpm ?? 0)
-              : computeWpmFromCursor(opCursor, elapsedMs);
-      
-          setWpmSamples(prev => [...prev, { tSec: sec, meWpm, oppWpm }]);
+          const wpm: Record<string, number> = {};
+          for (const p of r.players) {
+              wpm[p.pid] = p.status === "FINISHED"
+                  ? (p.wpm ?? 0)
+                  : computeWpmFromCursor(p.cursor, elapsedMs);
+          }
+
+          setWpmSamples(prev => [...prev, { tSec: sec, wpm }]);
         }, 50);
       
         return () => window.clearInterval(id);
@@ -817,6 +773,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
     const countdownMs = room ? room.startAtMs - clockNow : 0;
     const startsInSec = Math.max(0, Math.ceil(countdownMs / 1000));
+    const overlayVisible = room?.status === "COUNTDOWN" || showGoOverlay;
+    const overlayLabel = showGoOverlay ? "GO!" : (startsInSec > 0 ? String(startsInSec) : "GO!");
 
 
     const BATTLE_SHIFT_PX = 225;
@@ -828,6 +786,36 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
             alignItems: view === "lobby" ? "center" : "stretch",
         }}
         >
+            {/* Fullscreen countdown overlay */}
+            {overlayVisible && (
+                <div style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.93)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 1000,
+                    flexDirection: "column",
+                    gap: 16,
+                }}>
+                    <div style={{
+                        fontSize: 140,
+                        fontWeight: 900,
+                        color: showGoOverlay ? "#4ade80" : "#ffffff",
+                        lineHeight: 1,
+                        letterSpacing: -4,
+                    }}>
+                        {overlayLabel}
+                    </div>
+                    {!showGoOverlay && (
+                        <div style={{ fontSize: 16, opacity: 0.5, letterSpacing: 2, textTransform: "uppercase" }}>
+                            get ready
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div style={{
                 ...pageInner,
                 display: "flex",
@@ -1009,8 +997,6 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         <h3 style={{ margin: 0 }}>You</h3>
 
                                         <div style={{ fontSize: 14, opacity: 0.8 }}>
-                                            {status === "COUNTDOWN" ? `Starting in ${startsInSec}s` : ""}
-                                            {status === "RUNNING" && myStatus !== "FINISHED" ? "Go!" : ""}
                                             {myStatus === "FINISHED" ? "Finished" : ""}
                                         </div>
                                     </div>
@@ -1034,13 +1020,13 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
                                                 if (e.key === "Backspace") {
                                                     e.preventDefault();
-                                                    if (errorIndex != null) {
+                                                    if (errorIndexRef.current != null) {
+                                                        errorIndexRef.current = null;
                                                         setErrorIndex(null);
                                                         setTyped((prev) => prev.slice(0, -1));
                                                         return;
                                                     }
                                                     setTyped((prev) => prev.slice(0, -1));
-
                                                     return;
                                                 }
 
@@ -1049,7 +1035,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                 const isPrintable = e.key.length === 1;
                                                 if (!isPrintable) return;
 
-                                                if (errorIndex != null && typed.length > errorIndex) {
+                                                // Block all forward typing while there is an error (uses ref, not stale closure)
+                                                if (errorIndexRef.current != null) {
                                                     e.preventDefault();
                                                     return;
                                                 }
@@ -1061,8 +1048,9 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                                 const got = e.key;
 
                                                 if (got !== expected) {
-                                                    setTyped(prev => prev + got)
+                                                    errorIndexRef.current = i;
                                                     setErrorIndex(i);
+                                                    setTyped(prev => prev + got);
                                                     setMistakeCount((x) => x + 1);
                                                     return;
                                                 }
@@ -1112,56 +1100,41 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                         <div style={{ background: "#3a3a3a" }} />
 
                         <div style={{ padding: 24, display: "flex", justifyContent: "flex-start", transform: `translateX(${BATTLE_SHIFT_PX}px)`, }}>
-                            <div style={{ width: "100%", maxWidth: 560 }}>
-                                {/* Right side, opponents */}
-                                <div style={card}>
-                                    <h3 style={{ marginTop: 0 }}>Opponent</h3>
-
-                                    {room.players.filter((p) => p.pid !== pid).length === 0 ? (
+                            <div style={{ width: "100%", maxWidth: 560, display: "flex", flexDirection: "column", gap: 16 }}>
+                                {/* Right side, opponents (up to 2) */}
+                                {opponents.length === 0 ? (
+                                    <div style={{ ...card }}>
                                         <div style={{ opacity: 0.7 }}>Waiting for someone to join…</div>
-                                    ) : (
-                                        room.players
-                                            .filter((p) => p.pid !== pid)
-                                            .slice(0, 1)
-                                            .map((p) => (
-                                                <div
-                                                    style={{
-                                                        marginTop: 18,
-                                                    }}
-                                                >
-                                                    <div
-                                                        className="typeArea"
-                                                        style={{
-                                                            cursor: "default",
-                                                        }}
-                                                    >
-                                                        {prompt ? (
-                                                            <PromptBoxTrainingExact
-                                                                prompt={prompt}
-                                                                typedLen={p.cursor}
-                                                                caretIndex={p.cursor}
-                                                                isTyping={true}
-                                                            />
-                                                        ) : (
-                                                            "(loading prompt...)"
-                                                        )}
+                                    </div>
+                                ) : (
+                                    opponents.slice(0, 2).map((p, i) => {
+                                        const color = RACER_COLORS[i + 1] ?? RACER_COLORS[1];
+                                        return (
+                                            <div key={p.pid} style={card}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                                                    <h3 style={{ margin: 0, color }}>
+                                                        {p.name || `Racer ${i + 2}`}
+                                                    </h3>
+                                                    <div style={{ fontSize: 14, opacity: 0.8 }}>
+                                                        {p.status === "FINISHED" ? "Finished" : ""}
                                                     </div>
                                                 </div>
-                                            ))
-                                    )}
-
-                                    <div style={{ fontSize: 14, opacity: 0.8, marginTop: 6 }}>
-                                        {oppStatus === "FINISHED" ? "Finished" : ""}
-                                    </div>
-
-                                    {/* finish  */}
-                                    {status === "FINISHED" && (
-                                        <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "1px solid #3a3a3a" }}>
-                                            <b>Race finished.</b>{" "}
-                                        </div>
-                                    )}
-                                </div>
-
+                                                <div className="typeArea" style={{ marginTop: 18, cursor: "default" }}>
+                                                    {prompt ? (
+                                                        <PromptBoxTrainingExact
+                                                            prompt={prompt}
+                                                            typedLen={p.cursor}
+                                                            caretIndex={p.cursor}
+                                                            isTyping={true}
+                                                        />
+                                                    ) : (
+                                                        "(loading prompt...)"
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1175,24 +1148,26 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
 
                                 <SharedWpmChart
                                     samples={wpmSamples}
-                                    meName={me?.name ?? "You"}
-                                    oppName={opponent?.name ?? "Opponent"}
-                                    meEndSec={meFinishSecRef.current}
-                                    oppEndSec={oppFinishSecRef.current}
+                                    players={playerLines}
                                 />
 
                                 <div style={{ display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
-                                    <div style={{ ...card, flex: 1, minWidth: 220 }}>
-                                        <div style={{ fontSize: 12, opacity: 0.8 }}>You</div>
-                                        <div style={{ fontSize: 22, fontWeight: 800 }}>{me?.wpm ?? 0} WPM</div>
-                                        <div style={{ fontSize: 14, opacity: 0.85 }}>{me?.acc ?? 0}% acc</div>
-                                    </div>
-
-                                    <div style={{ ...card, flex: 1, minWidth: 220 }}>
-                                        <div style={{ fontSize: 12, opacity: 0.8 }}>Opponent</div>
-                                        <div style={{ fontSize: 22, fontWeight: 800 }}>{opponent?.wpm ?? 0} WPM</div>
-                                        <div style={{ fontSize: 14, opacity: 0.85 }}>{opponent?.acc ?? 0}% acc</div>
-                                    </div>
+                                    {room.players
+                                        .slice()
+                                        .sort((a, b) => (b.wpm ?? 0) - (a.wpm ?? 0))
+                                        .map((p, i) => {
+                                            const line = playerLines.find((l) => l.pid === p.pid);
+                                            const label = p.pid === pid ? "You" : (p.name || `Racer ${i + 1}`);
+                                            return (
+                                                <div key={p.pid} style={{ ...card, flex: 1, minWidth: 180 }}>
+                                                    <div style={{ fontSize: 12, opacity: 0.8, color: line?.color }}>
+                                                        {i === 0 ? "🥇 " : ""}{label}
+                                                    </div>
+                                                    <div style={{ fontSize: 22, fontWeight: 800 }}>{p.wpm ?? 0} WPM</div>
+                                                    <div style={{ fontSize: 14, opacity: 0.85 }}>{p.acc ?? 0}% acc</div>
+                                                </div>
+                                            );
+                                        })}
                                 </div>
 
                                 <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1206,11 +1181,11 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                             wsRef.current?.send({ type: "restart_round", data: {} });
                                         }}
                                     >
-                                        {rematchRequested ? "Waiting for opponent..." : "Play again"}
+                                        {rematchRequested ? "Waiting for others…" : "Play again"}
                                     </button>
 
                                     <div style={{ fontSize: 13, opacity: 0.75, alignSelf: "center" }}>
-                                        When both click Play again, you’ll get a new prompt + new countdown.
+                                        All players must click Play again to start a new round.
                                     </div>
                                 </div>
                             </div>

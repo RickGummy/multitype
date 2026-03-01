@@ -1,18 +1,22 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
+const maxPlayers = 3
+
 type Room struct {
 	mu sync.Mutex
 
-	rid    string
-	hostPid string
-	status string
+	rid          string
+	hostPid      string
+	status       string
+	guestCounter int
 
 	prompt     string
 	startAtMs  int64
@@ -36,25 +40,35 @@ func NewRoom(rid string) *Room {
 	}
 }
 
-func (r *Room) AddClient(c *Client) {
+func (r *Room) AddClient(c *Client) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	c.name = normalizeName(c.name)
+	if len(r.clients) >= maxPlayers {
+		return false
+	}
+	if r.status != "LOBBY" {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(c.name)
+	if trimmed == "" {
+		r.guestCounter++
+		c.name = fmt.Sprintf("Guest %d", r.guestCounter)
+	} else {
+		c.name = trimmed
+	}
 
 	r.clients[c.pid] = c
 	c.roomID = r.rid
 	c.status = "LOBBY"
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+	return true
 }
 
 func normalizeName(name string) string {
-	n := strings.TrimSpace(name)
-	if n == "" {
-		return "Guest"
-	}
-	return n
+	return strings.TrimSpace(name)
 }
 
 func displayName(s string) string {
@@ -95,7 +109,10 @@ func (r *Room) SetName(pid, name string) {
 	defer r.mu.Unlock()
 
 	if c, ok := r.clients[pid]; ok {
-		c.name = normalizeName(name)
+		trimmed := strings.TrimSpace(name)
+		if trimmed != "" {
+			c.name = trimmed
+		}
 	}
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
@@ -233,7 +250,7 @@ func (r *Room) beginCountdownLocked() {
 	r.status = "COUNTDOWN"
 	r.seed = time.Now().UnixNano()
 	r.prompt = ""
-	r.startAtMs = nowMs() + 3000
+	r.startAtMs = nowMs() + 5000
 
 	for _, c := range r.clients {
 		c.cursor = 0
@@ -313,13 +330,8 @@ func (r *Room) snapshotLocked() RoomState {
 
 	for _, c := range r.clients {
 		players = append(players, PlayerState{
-			Pid:		c.pid,
-			Name:		func() string {
-				if c.name == "" {
-					return "Guest"
-				}
-				return c.name
-			}(),
+			Pid:  c.pid,
+			Name: c.name,
 			Ready:		c.ready,
 			Cursor:		c.cursor,
 			Mistakes:	c.mistakes,

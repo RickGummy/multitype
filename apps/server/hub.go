@@ -37,19 +37,21 @@ func (h *Hub) CreateRoom(owner *Client) *Room {
 	return room
 }
 
-func (h *Hub) JoinRoom(rid string, c *Client) (*Room, bool) {
+func (h *Hub) JoinRoom(rid string, c *Client) (*Room, string) {
 	h.mu.Lock()
 	room, ok := h.rooms[rid]
 	h.mu.Unlock()
 
 	if !ok {
-		return nil, false
+		return nil, "room not found"
 	}
 
 	c.name = normalizeName(c.name)
-	room.AddClient(c)
+	if !room.AddClient(c) {
+		return nil, "room unavailable"
+	}
 
-	return room, true
+	return room, ""
 }
 
 func (h *Hub) MaybeDeleteRoom(rid string) {
