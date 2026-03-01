@@ -445,6 +445,7 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const [isHost, setIsHost] = useState(false);
 
     const [view, setView] = useState<"lobby" | "battle" | "stats">("lobby");
+    const [joinError, setJoinError] = useState<string | null>(null);
 
     const [wpmSamples, setWpmSamples] = useState<WpmSample[]>([]);
 
@@ -478,7 +479,13 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                 setRoom(m.data);
             }
             if (m.type === "error") {
-                console.log("server error:", m.err);
+                const errMap: Record<string, string> = {
+                    "room not found":   "Room not found. Check the code and try again.",
+                    "room unavailable": "This room is full or already in progress.",
+                    "missing rid":      "Please enter a room code.",
+                };
+                setJoinError(errMap[m.err ?? ""] ?? m.err ?? "Something went wrong.");
+                acceptRoomStateRef.current = false;
             }
             if (m.type === "player_progress") {
                 const d = m.data as any;
@@ -710,7 +717,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
             return;
         }
 
-        if (view === "stats") return;
+        // Keep stats visible while the race is finished; transition away for any other status
+        if (view === "stats" && room.status === "FINISHED") return;
 
         if (room.status === "LOBBY") {
             setView("lobby");
@@ -740,34 +748,21 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         setRoom(null);
         setIsHost(false);
         setRidInput("");
+        setJoinError(null);
         setView("lobby");
         resetLocalRound();
     };
 
     const onBack = () => {
-        if (view === "battle") {
-            setView("lobby");
-            return;
-        }
-
         if (room?.rid) {
-            acceptRoomStateRef.current = false;
+            // Leave the current room and return to the Multiplayer lobby screen
             wsRef.current?.send({ type: "leave_room", data: {} });
-            setRoom(null);
-            setIsHost(false);
-            setRidInput("");
-            setPrompt("");
-            setTyped("");
-            setWpmSamples([]);
-            setRematchRequested(false);
-            finishSentRef.current = false;
-
-            onExit();
+            resetToLobbyScreen();
             return;
         }
 
-        acceptRoomStateRef.current = false;
-        resetToLobbyScreen();
+        // Not in a room — exit back to the main app
+        onExit();
     }
 
 
@@ -878,12 +873,13 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         <input
                                             placeholder="Room code"
                                             value={ridInput}
-                                            onChange={(e) => setRidInput(e.target.value)}
+                                            onChange={(e) => { setRidInput(e.target.value); setJoinError(null); }}
                                             style={{ padding: 10, borderRadius: 10, border: "1px solid #3a3a3a", background: "#1f1f1f", color: "#eaeaea", outline: "none", }}
                                         />
                                         <button
                                             style={btnGhost}
                                             onClick={() => {
+                                                setJoinError(null);
                                                 acceptRoomStateRef.current = true;
                                                 setIsHost(false);
                                                 wsRef.current?.send({ type: "join_room", rid: ridInput, data: { name: cleanName(name) } });
@@ -891,6 +887,11 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
                                         >
                                             Join room
                                         </button>
+                                        {joinError && (
+                                            <div style={{ color: "#ff6b6b", fontSize: 13, marginTop: 2 }}>
+                                                {joinError}
+                                            </div>
+                                        )}
                                     </>
                                 )}
 
