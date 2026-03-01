@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"time"
+
+	"multiplayer-server/db"
 
 	"github.com/gorilla/websocket"
 )
@@ -13,16 +16,19 @@ type Client struct {
 	conn *websocket.Conn
 
 	pid    string
+	userID string
 	send   chan ServerMsg
 	name   string
 	roomID string
 
-	ready    bool
-	cursor   int
-	mistakes int
-	wpm      float64
-	acc      float64
-	status   string
+	ready      bool
+	cursor     int
+	mistakes   int
+	wpm        float64
+	acc        float64
+	status     string
+	durationMs int64
+	placement  int
 }
 
 func NewClient(hub *Hub, conn *websocket.Conn) *Client {
@@ -109,6 +115,22 @@ func (c *Client) readPump() {
 
 func (c *Client) handle(m ClientMsg) {
 	switch m.Type {
+
+	case "auth":
+		if m.Token == "" || db.Pool == nil {
+			return
+		}
+		user, err := validateToken(context.Background(), m.Token)
+		if err != nil || user == nil {
+			return
+		}
+		c.userID = user.ID
+		c.name = user.Username
+		if c.roomID != "" {
+			if room, ok := c.hub.GetRoom(c.roomID); ok {
+				room.SetName(c.pid, c.name)
+			}
+		}
 
 	case "set_name":
 		c.name = m.Name

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"multiplayer-server/db"
 )
 
 const maxPlayers = 3
@@ -18,10 +22,11 @@ type Room struct {
 	status       string
 	guestCounter int
 
-	prompt     string
-	startAtMs  int64
-	seed       int64
-	promptMode string
+	prompt      string
+	startAtMs   int64
+	seed        int64
+	promptMode  string
+	finishOrder []string
 
 	clients map[string]*Client
 	prompts []string
@@ -235,11 +240,23 @@ func (r *Room) Finish(pid string) {
 
 	c.wpm = round2(computeWPM(c.cursor, elapsed))
 	c.acc = round2(100.0 * computeAcc(c.cursor, c.mistakes))
+	c.durationMs = elapsed
+
+	r.finishOrder = append(r.finishOrder, pid)
+	c.placement = len(r.finishOrder)
 
 	if r.allFinishedLocked() {
 		r.status = "FINISHED"
 		r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 
+		if db.Pool != nil {
+			record := r.buildRaceRecordLocked()
+			go func() {
+				if err := db.SaveRace(context.Background(), record); err != nil {
+					log.Printf("SaveRace error: %v", err)
+				}
+			}()
+		}
 		return
 	}
 
@@ -293,9 +310,10 @@ func (r *Room) beginCountdownLocked() {
 
 func (r *Room) resetToLobbyLocked() {
 	r.status = "LOBBY"
-	r.prompt =""
+	r.prompt = ""
 	r.startAtMs = 0
 	r.seed = 0
+	r.finishOrder = r.finishOrder[:0]
 
 	for _, c := range r.clients {
 		c.cursor = 0
@@ -304,6 +322,32 @@ func (r *Room) resetToLobbyLocked() {
 		c.acc = 100
 		c.status = "LOBBY"
 		c.ready = false
+		c.durationMs = 0
+		c.placement = 0
+	}
+}
+
+func (r *Room) buildRaceRecordLocked() db.RaceRecord {
+	players := make([]db.PlayerResult, 0, len(r.clients))
+	for _, c := range r.clients {
+		players = append(players, db.PlayerResult{
+			UserID:     c.userID,
+			PlayerName: c.name,
+			WPM:        c.wpm,
+			Accuracy:   c.acc,
+			Mistakes:   c.mistakes,
+			DurationMs: c.durationMs,
+			Placement:  c.placement,
+		})
+	}
+	return db.RaceRecord{
+		RoomID:     r.rid,
+		PromptText: r.prompt,
+		PromptMode: r.promptMode,
+		Seed:       r.seed,
+		StartedAt:  time.UnixMilli(r.startAtMs),
+		FinishedAt: time.Now(),
+		Players:    players,
 	}
 }
 

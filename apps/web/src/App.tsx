@@ -6,6 +6,12 @@ import TrainingScreen from "./Training";
 
 type Screen = "home" | "training" | "multiplayer" | "bots" | "history" | "profile";
 
+type AuthUser = {
+  id: string;
+  username: string;
+  token: string;
+};
+
 type RunResult = {
   id: string;
   mode: "training";
@@ -23,6 +29,9 @@ type Profile = {
 
 const RUN_KEYS = "multitype:runs:v1";
 const PROFILE_KEY = "multitype:profile:v1";
+const AUTH_KEY = "multitype:auth:v1";
+
+const API_BASE = "http://localhost:8080";
 
 const DEFAULT_PROFILE: Profile = {
   displayName: "Rick",
@@ -133,12 +142,42 @@ function clearRuns() {
   localStorage.removeItem(RUN_KEYS);
 }
 
+function loadAuthUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.token !== "string" || typeof parsed.username !== "string") return null;
+    return parsed as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+function saveAuthUser(user: AuthUser) {
+  localStorage.setItem(AUTH_KEY, JSON.stringify(user));
+}
+
+function clearAuthUser() {
+  localStorage.removeItem(AUTH_KEY);
+}
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => loadAuthUser());
+
+  function handleAuthChange(user: AuthUser | null) {
+    if (user) {
+      saveAuthUser(user);
+    } else {
+      clearAuthUser();
+    }
+    setCurrentUser(user);
+  }
 
   if (screen === "home") {
     return (
@@ -166,11 +205,11 @@ export default function App() {
   }
 
   if (screen === "profile") {
-    return <ProfileScreen onBack={() => setScreen("home")} />;
+    return <ProfileScreen onBack={() => setScreen("home")} currentUser={currentUser} onAuthChange={handleAuthChange} />;
   }
 
   if (screen === "multiplayer") {
-    return <Multiplayer onExit={() => setScreen("home")}/>;
+    return <Multiplayer onExit={() => setScreen("home")} token={currentUser?.token} />;
   }
 
   if (screen === "bots") {
@@ -373,9 +412,23 @@ function WpmMiniChart(props: { values: number[] }) {
   );
 }
 
-function ProfileScreen(props: { onBack: () => void }) {
+function ProfileScreen(props: {
+  onBack: () => void;
+  currentUser: AuthUser | null;
+  onAuthChange: (user: AuthUser | null) => void;
+}) {
+  const { currentUser, onAuthChange } = props;
   const [name, setName] = useState(() => loadProfile().displayName);
   const [runs, setRuns] = useState<RunResult[]>(() => loadRuns());
+
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const [mpStats, setMpStats] = useState<any | null>(null);
+  const [mpLoading, setMpLoading] = useState(false);
 
   useEffect(() => {
     setRuns(loadRuns());
@@ -388,47 +441,170 @@ function ProfileScreen(props: { onBack: () => void }) {
     return () => window.clearTimeout(id);
   }, [name]);
 
+  useEffect(() => {
+    if (!currentUser) {
+      setMpStats(null);
+      return;
+    }
+    setMpLoading(true);
+    fetch(`${API_BASE}/api/profile/${currentUser.username}`)
+      .then((r) => r.json())
+      .then((data) => setMpStats(data))
+      .catch(() => setMpStats(null))
+      .finally(() => setMpLoading(false));
+  }, [currentUser?.username]);
+
   const bestWpm = runs.length ? Math.max(...runs.map((r) => r.wpmCorr)) : 0;
   const last10 = runs.slice(0, 10);
-
   const avgLast10 = last10.length ? last10.reduce((s, r) => s + r.wpmCorr, 0) / last10.length : 0;
   const avgAccLast10 = last10.length ? last10.reduce((s, r) => s + r.accuracy, 0) / last10.length : 0;
+
+  async function handleAuth() {
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      const url =
+        authTab === "login"
+          ? `${API_BASE}/api/auth/login`
+          : `${API_BASE}/api/auth/register`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: authUsername.trim(), password: authPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.error ?? "Something went wrong.");
+        return;
+      }
+      onAuthChange({ id: data.id, username: data.username, token: data.token });
+    } catch {
+      setAuthError("Could not reach server.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
 
   return (
     <div className="page">
       <div className="container">
         <h1 className="title">Profile</h1>
+
         <div className="card" style={{ minWidth: 0 }}>
           <div className="cardLabel" style={{ marginBottom: 6 }}>
             Display name
           </div>
-
           <input
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Rick"
           />
-
           <div className="statsGrid" style={{ marginTop: 16 }}>
             <StatCard label="Runs" value={`${runs.length}`} />
             <StatCard label="Personal Best" value={bestWpm.toFixed(1)} />
             <StatCard label="Avg WPM (Last 10)" value={avgLast10.toFixed(1)} />
           </div>
-
           <div style={{ marginTop: 12 }}>
             <div className="cardLabel">Avg Accuracy (Last 10)</div>
-            
             <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>
               {avgAccLast10.toFixed(1)}%
             </div>
           </div>
+        </div>
 
-          <div className="row center" style={{ marginTop: 16 }}>
-            <button className="btn" onClick={props.onBack}>
-              Back
-            </button>
+        {!currentUser ? (
+          <div className="card" style={{ minWidth: 0, marginTop: 16 }}>
+            <div className="cardLabel" style={{ marginBottom: 12 }}>Multiplayer account</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button
+                className="btn"
+                style={{ opacity: authTab === "login" ? 1 : 0.5 }}
+                onClick={() => { setAuthTab("login"); setAuthError(null); }}
+              >
+                Log in
+              </button>
+              <button
+                className="btn"
+                style={{ opacity: authTab === "register" ? 1 : 0.5 }}
+                onClick={() => { setAuthTab("register"); setAuthError(null); }}
+              >
+                Register
+              </button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280 }}>
+              <input
+                className="input"
+                placeholder="Username"
+                value={authUsername}
+                onChange={(e) => setAuthUsername(e.target.value)}
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="Password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAuth(); }}
+              />
+              {authError && (
+                <div style={{ color: "#ff6b6b", fontSize: 13 }}>{authError}</div>
+              )}
+              <button className="btn" onClick={handleAuth} disabled={authLoading}>
+                {authLoading ? "..." : authTab === "login" ? "Log in" : "Register"}
+              </button>
+            </div>
           </div>
+        ) : (
+          <div className="card" style={{ minWidth: 0, marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div>
+                <div className="cardLabel">Logged in as</div>
+                <div style={{ fontWeight: 700, fontSize: 18 }}>{currentUser.username}</div>
+              </div>
+              <button className="btn" onClick={() => onAuthChange(null)}>
+                Log out
+              </button>
+            </div>
+            {mpLoading && <div className="cardLabel">Loading stats...</div>}
+            {mpStats && (
+              <>
+                {mpStats.overall && (
+                  <div className="statsGrid">
+                    <StatCard label="Races" value={`${mpStats.overall.races ?? 0}`} />
+                    <StatCard label="Best WPM" value={(mpStats.overall.best_wpm ?? 0).toFixed(1)} />
+                    <StatCard label="Avg WPM" value={(mpStats.overall.avg_wpm ?? 0).toFixed(1)} />
+                  </div>
+                )}
+                {mpStats.recent && mpStats.recent.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div className="cardLabel" style={{ marginBottom: 8 }}>Recent races</div>
+                    <div className="runList">
+                      {(mpStats.recent as any[]).map((r, i) => (
+                        <div key={i} className="runRow">
+                          <div className="runMain">
+                            <div className="runWpm">{(r.wpm ?? 0).toFixed(1)} WPM</div>
+                          </div>
+                          <div className="runPrompt">
+                            {r.prompt_mode} · {(r.accuracy ?? 0).toFixed(1)}% acc · pos {r.placement}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {mpStats.recent && mpStats.recent.length === 0 && (
+                  <div className="cardLabel">No multiplayer races yet.</div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="row center" style={{ marginTop: 18 }}>
+          <button className="btn" onClick={props.onBack}>
+            Back
+          </button>
         </div>
       </div>
     </div>

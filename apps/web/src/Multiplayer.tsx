@@ -397,7 +397,7 @@ function SharedWpmChart(props: {
 
 
 
-export default function Multiplayer({ onExit }: { onExit: () => void }) {
+export default function Multiplayer({ onExit, token }: { onExit: () => void; token?: string }) {
     const [pid, setPid] = useState<string>("");
     const [room, setRoom] = useState<RoomState | null>(null);
     const [ridInput, setRidInput] = useState("");
@@ -454,6 +454,8 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
     const prevStatusRef = useRef<string | null>(null);
 
     const wsRef = useRef<WSClient | null>(null);
+    const tokenRef = useRef(token);
+    useEffect(() => { tokenRef.current = token; }, [token]);
     const lastProgressSentAt = useRef<number>(0);
 
     const finishSentRef = useRef(false);
@@ -471,6 +473,9 @@ export default function Multiplayer({ onExit }: { onExit: () => void }) {
         const ws = new WSClient((m: WSMsg) => {
             if (m.type === "hello") {
                 setPid(m.data?.pid ?? "");
+                if (tokenRef.current) {
+                    ws.send({ type: "auth", data: { token: tokenRef.current } });
+                }
             }
             if (m.type === "room_state") {
                 if (!acceptRoomStateRef.current) {

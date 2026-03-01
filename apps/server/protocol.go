@@ -11,6 +11,7 @@ type ClientMsg struct {
 	Finished   *bool  `json:"finished,omitempty"`
 
 	PromptMode string `json:"promptMode,omitempty"`
+	Token      string `json:"token,omitempty"`
 }
 
 type ServerMsg struct {
