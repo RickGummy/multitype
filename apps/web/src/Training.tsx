@@ -340,7 +340,7 @@ export default function TrainingScreen(props: {
         }
 
         const list = data
-          .map((q: any) => (typeof q?.text === "string" ? q.text.trim() : ""))
+          .map((q: { text?: unknown }) => (typeof q?.text === "string" ? q.text.trim() : ""))
           .filter(Boolean);
 
         setPassages(list);

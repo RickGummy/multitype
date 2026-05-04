@@ -3,7 +3,7 @@
 export type WSMsg = {
     type : string;
     rid ?: string;
-    data ?: any;
+    data ?: unknown;
     err ?: string;
 };
 

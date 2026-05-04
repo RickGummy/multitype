@@ -37,29 +37,31 @@ const DEFAULT_PROFILE: Profile = {
   displayName: "Rick",
 };
 
-function normalizeRun(x: any): RunResult | null {
+function normalizeRun(x: unknown): RunResult | null {
   if (!x || typeof x !== "object") {
     return null;
   }
 
+  const r = x as Record<string, unknown>;
+
   const wpmCorr =
-    typeof x.wpmCorr === "number" ? x.wpmCorr :
-    typeof x.wpm === "number" ? x.wpm :
+    typeof r.wpmCorr === "number" ? r.wpmCorr :
+    typeof r.wpm === "number" ? r.wpm :
     null;
 
   const wpmRaw =
-    typeof x.wpmRaw === "number" ? x.wpmRaw :
-    typeof x.wpm === "number" ? x.wpm :
+    typeof r.wpmRaw === "number" ? r.wpmRaw :
+    typeof r.wpm === "number" ? r.wpm :
     null;
 
-  const accuracy = typeof x.accuracy === "number" ? x.accuracy : null;
-  const elapsedMs = typeof x.elapsedMs === "number" ? x.elapsedMs : null;
+  const accuracy = typeof r.accuracy === "number" ? r.accuracy : null;
+  const elapsedMs = typeof r.elapsedMs === "number" ? r.elapsedMs : null;
 
-  const id = typeof x.id === "string" && x.id ? x.id : null;
+  const id = typeof r.id === "string" && r.id ? r.id : null;
 
-  const prompt = typeof x.prompt === "string" ? x.prompt : "";
+  const prompt = typeof r.prompt === "string" ? r.prompt : "";
 
-  const endedAtIso = typeof x.endedAtIso === "string" ? x.endedAtIso : new Date().toISOString();
+  const endedAtIso = typeof r.endedAtIso === "string" ? r.endedAtIso : new Date().toISOString();
 
   if (id == null || wpmCorr == null || wpmRaw == null || accuracy == null || elapsedMs == null) {
     return null;
@@ -427,7 +429,12 @@ function ProfileScreen(props: {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  const [mpStats, setMpStats] = useState<any | null>(null);
+  type MpRace = { wpm?: number; accuracy?: number; prompt_mode?: string; placement?: number };
+  type MpStats = {
+    overall?: { races?: number; best_wpm?: number; avg_wpm?: number };
+    recent?: MpRace[];
+  };
+  const [mpStats, setMpStats] = useState<MpStats | null>(null);
   const [mpLoading, setMpLoading] = useState(false);
 
   useEffect(() => {
@@ -580,7 +587,7 @@ function ProfileScreen(props: {
                   <div style={{ marginTop: 12 }}>
                     <div className="cardLabel" style={{ marginBottom: 8 }}>Recent races</div>
                     <div className="runList">
-                      {(mpStats.recent as any[]).map((r, i) => (
+                      {mpStats.recent.map((r, i) => (
                         <div key={i} className="runRow">
                           <div className="runMain">
                             <div className="runWpm">{(r.wpm ?? 0).toFixed(1)} WPM</div>
