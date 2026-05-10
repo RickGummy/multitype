@@ -37,19 +37,23 @@ function cleanName(raw: string) {
 }
 
 
+type GhostCursor = { pid: string; cursor: number; color: string };
+
 function PromptBoxTrainingExact(props: {
     prompt: string;
     typedLen: number;
     caretIndex: number;
     isTyping: boolean;
     errorIndex?: number | null;
+    ghostCursors?: GhostCursor[];
 }) {
-    const { prompt, typedLen, caretIndex, isTyping, errorIndex } = props;
+    const { prompt, typedLen, caretIndex, isTyping, errorIndex, ghostCursors } = props;
 
     const promptBoxRef = useRef<HTMLDivElement | null>(null);
 
     const [caret, setCaret] = useState({ x: 0, y: 0, h: 22 });
     const caretTargetRef = useRef({ x: 0, y: 0, h: 22 });
+    const [ghostPositions, setGhostPositions] = useState<Record<string, { x: number; y: number; h: number }>>({});
 
     const rafRef = useRef<number | null>(null);
     const lastFrameRef = useRef<number>(0);
@@ -145,6 +149,34 @@ function PromptBoxTrainingExact(props: {
         };
     }, [caretIndex, prompt]);
 
+    useLayoutEffect(() => {
+        if (!ghostCursors || ghostCursors.length === 0) {
+            setGhostPositions({});
+            return;
+        }
+        const compute = () => {
+            const box = promptBoxRef.current;
+            if (!box) return;
+            const boxRect = box.getBoundingClientRect();
+            const next: Record<string, { x: number; y: number; h: number }> = {};
+            for (const g of ghostCursors) {
+                const idx = Math.min(Math.max(0, g.cursor), prompt.length);
+                const el = box.querySelector<HTMLSpanElement>(`span[data-i="${idx}"]`);
+                if (!el) continue;
+                const r = el.getBoundingClientRect();
+                next[g.pid] = { x: r.left - boxRect.left, y: r.top - boxRect.top, h: r.height };
+            }
+            setGhostPositions(next);
+        };
+        compute();
+        const raf = requestAnimationFrame(compute);
+        window.addEventListener("resize", compute);
+        return () => {
+            cancelAnimationFrame(raf);
+            window.removeEventListener("resize", compute);
+        };
+    }, [ghostCursors, prompt]);
+
     const CARET_SCALE = 0.6;
     const caretH = Math.max(12, caret.h * CARET_SCALE);
 
@@ -157,6 +189,30 @@ function PromptBoxTrainingExact(props: {
                     height: `${caretH}px`,
                 }}
             />
+
+            {ghostCursors?.map((g) => {
+                const pos = ghostPositions[g.pid];
+                if (!pos) return null;
+                const gh = Math.max(12, pos.h * CARET_SCALE);
+                return (
+                    <div
+                        key={g.pid}
+                        style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: 2,
+                            height: gh,
+                            background: g.color,
+                            opacity: 0.35,
+                            borderRadius: 1,
+                            pointerEvents: "none",
+                            transform: `translate(${pos.x}px, ${pos.y + (pos.h - gh) / 2}px)`,
+                            transition: "transform 120ms linear",
+                        }}
+                    />
+                );
+            })}
 
             {wordsWithStart.map(({ word, start }, wi) => {
                 const isLast = wi === wordsWithStart.length - 1;
@@ -207,7 +263,7 @@ function PromptBoxTrainingExact(props: {
     );
 }
 
-const RACER_COLORS = ["#ff4d4d", "#4da3ff", "#4ade80"] as const;
+const RACER_COLORS = ["#e8e8e8", "#9a9a9a", "#6e6e6e"] as const;
 
 type WpmSample = { tSec: number; wpm: Record<string, number> };
 
@@ -525,19 +581,22 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     useEffect(() => {
         if (!room || room.status !== "RUNNING" || !prompt) return;
 
-        const t = nowMs();
-        if (t - lastProgressSentAt.current < 120) return;
-
         const cursor = typed.length;
         const mistakes = mistakeCount;
 
-        wsRef.current?.send({ type: "progress", data: { cursor, mistakes } });
-        lastProgressSentAt.current = t;
-
         if (cursor >= prompt.length && errorIndex == null && !finishSentRef.current) {
             finishSentRef.current = true;
+            wsRef.current?.send({ type: "progress", data: { cursor, mistakes } });
             wsRef.current?.send({ type: "finish", data: {} });
+            lastProgressSentAt.current = nowMs();
+            return;
         }
+
+        const t = nowMs();
+        if (t - lastProgressSentAt.current < 120) return;
+
+        wsRef.current?.send({ type: "progress", data: { cursor, mistakes } });
+        lastProgressSentAt.current = t;
 
     }, [typed, mistakeCount, errorIndex, room?.status, room?.rid, prompt]);
 
@@ -691,7 +750,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                     <div style={{
                         fontSize: 140,
                         fontWeight: 900,
-                        color: showGoOverlay ? "#4ade80" : "var(--text)",
+                        color: "var(--text)",
                         lineHeight: 1,
                         letterSpacing: -4,
                     }}>
@@ -705,61 +764,60 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                 </div>
             )}
 
-            <div className="container">
+            <div className="container" style={{ maxWidth: view === "battle" && opponents.length === 1 ? 1400 : undefined }}>
                 <h1 className="title">Multiplayer</h1>
 
                 {view === "lobby" && (
                     <>
                         {!room ? (
                             <div className="settingsCard">
-                                <div className="settingsRow">
+                                <div className="settingsRow" style={{ flexWrap: "wrap", gap: 10 }}>
                                     <input
                                         className="input"
                                         placeholder="Your name"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        style={{ maxWidth: 280 }}
+                                        style={{ maxWidth: 200 }}
                                     />
-                                    <button
-                                        className="btn"
-                                        onClick={() => wsRef.current?.send({ type: "set_name", data: { name: cleanName(name) } })}
-                                    >
-                                        Set name
-                                    </button>
-                                </div>
-
-                                <div className="settingsRow">
                                     <button
                                         className="btn primary"
                                         onClick={() => {
                                             acceptRoomStateRef.current = true;
                                             setIsHost(true);
+                                            wsRef.current?.send({ type: "set_name", data: { name: cleanName(name) } });
                                             wsRef.current?.send({ type: "create_room", data: { name: cleanName(name) } });
                                         }}
                                     >
-                                        Create room
+                                        Create
                                     </button>
-
-                                    <div style={{ display: "flex", gap: 10, alignItems: "center", flex: 1, minWidth: 0, justifyContent: "flex-end" }}>
-                                        <input
-                                            className="input"
-                                            placeholder="Room code"
-                                            value={ridInput}
-                                            onChange={(e) => { setRidInput(e.target.value); setJoinError(null); }}
-                                            style={{ maxWidth: 200 }}
-                                        />
-                                        <button
-                                            className="btn"
-                                            onClick={() => {
+                                    <input
+                                        className="input"
+                                        placeholder="Room code"
+                                        value={ridInput}
+                                        onChange={(e) => { setRidInput(e.target.value); setJoinError(null); }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && ridInput.trim()) {
                                                 setJoinError(null);
                                                 acceptRoomStateRef.current = true;
                                                 setIsHost(false);
+                                                wsRef.current?.send({ type: "set_name", data: { name: cleanName(name) } });
                                                 wsRef.current?.send({ type: "join_room", rid: ridInput, data: { name: cleanName(name) } });
-                                            }}
-                                        >
-                                            Join
-                                        </button>
-                                    </div>
+                                            }
+                                        }}
+                                        style={{ maxWidth: 160 }}
+                                    />
+                                    <button
+                                        className="btn"
+                                        onClick={() => {
+                                            setJoinError(null);
+                                            acceptRoomStateRef.current = true;
+                                            setIsHost(false);
+                                            wsRef.current?.send({ type: "set_name", data: { name: cleanName(name) } });
+                                            wsRef.current?.send({ type: "join_room", rid: ridInput, data: { name: cleanName(name) } });
+                                        }}
+                                    >
+                                        Join
+                                    </button>
                                 </div>
 
                                 {joinError && (
@@ -818,8 +876,8 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                                     <span style={{ color: line?.color ?? "var(--text)", fontWeight: 700 }}>
                                                         {p.name}{p.pid === pid ? " (you)" : ""}
                                                     </span>
-                                                    <span className="mutedSmall" style={{ color: p.ready ? "#4ade80" : "var(--muted)" }}>
-                                                        {p.ready ? "Ready" : "Waiting"}
+                                                    <span className="mutedSmall" style={{ color: p.ready ? "var(--text)" : "var(--muted)", fontWeight: p.ready ? 800 : 400 }}>
+                                                        {p.ready ? "✓ Ready" : "Waiting"}
                                                     </span>
                                                 </li>
                                             );
@@ -837,78 +895,137 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
 
                 {view === "battle" && room && (
                     <>
-                        <div
-                            className="typeArea"
-                            onClick={() => hiddenInputRef.current?.focus()}
-                            style={{ cursor: room.status === "RUNNING" ? "text" : "default" }}
-                        >
-                            <input
-                                ref={hiddenInputRef}
-                                value={typed}
-                                readOnly
-                                onKeyDown={(e) => {
-                                    if (!room) return;
-                                    if (room.status !== "RUNNING") return;
-                                    if (!prompt) return;
+                        <input
+                            ref={hiddenInputRef}
+                            value={typed}
+                            readOnly
+                            onKeyDown={(e) => {
+                                if (!room) return;
+                                if (room.status !== "RUNNING") return;
+                                if (!prompt) return;
 
-                                    if (e.key === "Tab") { e.preventDefault(); return; }
-                                    if (e.metaKey || e.ctrlKey || e.altKey) return;
+                                if (e.key === "Tab") { e.preventDefault(); return; }
+                                if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-                                    if (e.key === "Backspace") {
-                                        e.preventDefault();
-                                        if (errorIndexRef.current != null) {
-                                            errorIndexRef.current = null;
-                                            setErrorIndex(null);
-                                            setTyped((prev) => prev.slice(0, -1));
-                                            return;
-                                        }
+                                if (e.key === "Backspace") {
+                                    e.preventDefault();
+                                    if (errorIndexRef.current != null) {
+                                        errorIndexRef.current = null;
+                                        setErrorIndex(null);
                                         setTyped((prev) => prev.slice(0, -1));
                                         return;
                                     }
+                                    setTyped((prev) => prev.slice(0, -1));
+                                    return;
+                                }
 
-                                    if (e.key === " ") e.preventDefault();
+                                if (e.key === " ") e.preventDefault();
 
-                                    const isPrintable = e.key.length === 1;
-                                    if (!isPrintable) return;
+                                const isPrintable = e.key.length === 1;
+                                if (!isPrintable) return;
 
-                                    if (errorIndexRef.current != null) {
-                                        e.preventDefault();
-                                        return;
-                                    }
-
-                                    const i = typedRef.current.length;
-                                    if (i >= prompt.length) return;
-
-                                    const expected = prompt[i];
-                                    const got = e.key;
-
-                                    if (got !== expected) {
-                                        errorIndexRef.current = i;
-                                        setErrorIndex(i);
-                                        setTyped(prev => prev + got);
-                                        setMistakeCount((x) => x + 1);
-                                        return;
-                                    }
-
+                                if (errorIndexRef.current != null) {
                                     e.preventDefault();
-                                    setTyped((prev) => (prev + got).slice(0, prompt.length));
-                                }}
-                                disabled={room.status !== "RUNNING"}
-                                style={{ position: "absolute", opacity: 0, pointerEvents: "none", left: 0, top: 0, height: 1, width: 1 }}
-                            />
+                                    return;
+                                }
 
-                            {prompt ? (
-                                <PromptBoxTrainingExact
-                                    prompt={prompt}
-                                    typedLen={typed.length}
-                                    caretIndex={typed.length}
-                                    isTyping={isTyping}
-                                    errorIndex={errorIndex}
-                                />
-                            ) : (
-                                <div className="promptBox" style={{ opacity: 0.6 }}>(loading prompt…)</div>
-                            )}
-                        </div>
+                                const i = typedRef.current.length;
+                                if (i >= prompt.length) return;
+
+                                const expected = prompt[i];
+                                const got = e.key;
+
+                                if (got !== expected) {
+                                    errorIndexRef.current = i;
+                                    setErrorIndex(i);
+                                    setTyped(prev => prev + got);
+                                    setMistakeCount((x) => x + 1);
+                                    return;
+                                }
+
+                                e.preventDefault();
+                                setTyped((prev) => (prev + got).slice(0, prompt.length));
+                            }}
+                            disabled={room.status !== "RUNNING"}
+                            style={{ position: "fixed", opacity: 0, pointerEvents: "none", left: 0, top: 0, height: 1, width: 1 }}
+                        />
+
+                        {opponents.length === 1 ? (
+                            <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 1px 1fr",
+                                gap: 24,
+                                alignItems: "start",
+                            }}>
+                                <div>
+                                    <div className="cardLabel" style={{ marginBottom: 8, color: RACER_COLORS[0] }}>You</div>
+                                    <div
+                                        className="typeArea"
+                                        onClick={() => hiddenInputRef.current?.focus()}
+                                        style={{ cursor: room.status === "RUNNING" ? "text" : "default" }}
+                                    >
+                                        {prompt ? (
+                                            <PromptBoxTrainingExact
+                                                prompt={prompt}
+                                                typedLen={typed.length}
+                                                caretIndex={typed.length}
+                                                isTyping={isTyping}
+                                                errorIndex={errorIndex}
+                                            />
+                                        ) : (
+                                            <div className="promptBox" style={{ opacity: 0.6 }}>(loading prompt…)</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div style={{ background: "var(--border)", alignSelf: "stretch" }} />
+
+                                <div>
+                                    <div className="cardLabel" style={{ marginBottom: 8, color: RACER_COLORS[1], display: "flex", justifyContent: "space-between" }}>
+                                        <span>{opponents[0].name || "Opponent"}</span>
+                                        <span className="mutedSmall">
+                                            {(opponents[0].wpm ?? 0).toFixed(0)} WPM
+                                            {opponents[0].status === "FINISHED" ? " · finished" : ""}
+                                        </span>
+                                    </div>
+                                    <div className="typeArea" style={{ cursor: "default" }}>
+                                        {prompt ? (
+                                            <PromptBoxTrainingExact
+                                                prompt={prompt}
+                                                typedLen={opponents[0].cursor}
+                                                caretIndex={opponents[0].cursor}
+                                                isTyping={true}
+                                            />
+                                        ) : (
+                                            <div className="promptBox" style={{ opacity: 0.6 }}>(loading prompt…)</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div
+                                className="typeArea"
+                                onClick={() => hiddenInputRef.current?.focus()}
+                                style={{ cursor: room.status === "RUNNING" ? "text" : "default" }}
+                            >
+                                {prompt ? (
+                                    <PromptBoxTrainingExact
+                                        prompt={prompt}
+                                        typedLen={typed.length}
+                                        caretIndex={typed.length}
+                                        isTyping={isTyping}
+                                        errorIndex={errorIndex}
+                                        ghostCursors={opponents.map((p, i) => ({
+                                            pid: p.pid,
+                                            cursor: p.cursor,
+                                            color: RACER_COLORS[i + 1] ?? RACER_COLORS[1],
+                                        }))}
+                                    />
+                                ) : (
+                                    <div className="promptBox" style={{ opacity: 0.6 }}>(loading prompt…)</div>
+                                )}
+                            </div>
+                        )}
 
                         {myStatus === "FINISHED" && (
                             <div className="mutedSmall" style={{ textAlign: "center", marginTop: 10 }}>
@@ -916,31 +1033,18 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                             </div>
                         )}
 
-                        {opponents.length > 0 && (
-                            <div style={{ marginTop: 18 }}>
-                                <div className="cardLabel" style={{ marginBottom: 8 }}>Racing against</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                    {opponents.slice(0, 2).map((p, i) => {
-                                        const color = RACER_COLORS[i + 1] ?? RACER_COLORS[1];
-                                        const total = prompt.length || 1;
-                                        const pct = Math.min(100, Math.round((p.cursor / total) * 100));
-                                        return (
-                                            <div key={p.pid} className="card">
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-                                                    <span style={{ color, fontWeight: 700 }}>
-                                                        {p.name || `Racer ${i + 2}`}
-                                                    </span>
-                                                    <span className="mutedSmall">
-                                                        {(p.wpm ?? 0).toFixed(0)} WPM · {pct}%{p.status === "FINISHED" ? " · finished" : ""}
-                                                    </span>
-                                                </div>
-                                                <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                                                    <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width 120ms linear" }} />
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                        {opponents.length >= 2 && (
+                            <div style={{ marginTop: 14, display: "flex", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
+                                {opponents.map((p, i) => {
+                                    const color = RACER_COLORS[i + 1] ?? RACER_COLORS[1];
+                                    return (
+                                        <span key={p.pid} className="mutedSmall" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                            <span style={{ width: 8, height: 8, borderRadius: 2, background: color, opacity: 0.6, display: "inline-block" }} />
+                                            <span style={{ color }}>{p.name || `Racer ${i + 2}`}</span>
+                                            <span style={{ opacity: 0.7 }}>{(p.wpm ?? 0).toFixed(0)} WPM{p.status === "FINISHED" ? " · finished" : ""}</span>
+                                        </span>
+                                    );
+                                })}
                             </div>
                         )}
 
@@ -991,7 +1095,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                             className="pill"
                                             style={{
                                                 color: line?.color,
-                                                borderColor: p.ready ? "#4ade80" : undefined,
+                                                borderColor: p.ready ? "var(--text)" : undefined,
                                                 opacity: 1,
                                                 cursor: "default",
                                             }}
