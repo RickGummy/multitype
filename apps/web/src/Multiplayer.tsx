@@ -204,7 +204,7 @@ function PromptBoxTrainingExact(props: {
                             width: 2,
                             height: gh,
                             background: g.color,
-                            opacity: 0.35,
+                            opacity: 0.7,
                             borderRadius: 1,
                             pointerEvents: "none",
                             transform: `translate(${pos.x}px, ${pos.y + (pos.h - gh) / 2}px)`,
@@ -770,17 +770,18 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                 {view === "lobby" && (
                     <>
                         {!room ? (
-                            <div className="settingsCard">
-                                <div className="settingsRow" style={{ flexWrap: "wrap", gap: 10 }}>
+                            <div className="card" style={{ maxWidth: 520, margin: "0 auto", padding: 14 }}>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
                                     <input
                                         className="input"
-                                        placeholder="Your name"
+                                        placeholder="Name"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
-                                        style={{ maxWidth: 200 }}
+                                        style={{ width: 130, padding: "8px 12px", fontSize: 14, borderRadius: 10 }}
                                     />
                                     <button
                                         className="btn primary"
+                                        style={{ height: 38, padding: "0 14px", fontSize: 14, borderRadius: 10 }}
                                         onClick={() => {
                                             acceptRoomStateRef.current = true;
                                             setIsHost(true);
@@ -790,6 +791,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                     >
                                         Create
                                     </button>
+                                    <div style={{ width: 1, height: 22, background: "var(--border)", margin: "0 4px" }} />
                                     <input
                                         className="input"
                                         placeholder="Room code"
@@ -804,10 +806,11 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                                 wsRef.current?.send({ type: "join_room", rid: ridInput, data: { name: cleanName(name) } });
                                             }
                                         }}
-                                        style={{ maxWidth: 160 }}
+                                        style={{ width: 110, padding: "8px 12px", fontSize: 14, borderRadius: 10, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", letterSpacing: 1 }}
                                     />
                                     <button
                                         className="btn"
+                                        style={{ height: 38, padding: "0 14px", fontSize: 14, borderRadius: 10 }}
                                         onClick={() => {
                                             setJoinError(null);
                                             acceptRoomStateRef.current = true;
@@ -821,70 +824,64 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                 </div>
 
                                 {joinError && (
-                                    <div style={{ color: "var(--danger)", fontSize: 13 }}>
+                                    <div style={{ color: "var(--danger)", fontSize: 12, textAlign: "center", marginTop: 10 }}>
                                         {joinError}
                                     </div>
                                 )}
                             </div>
                         ) : (
-                            <>
-                                <div className="settingsCard">
-                                    <div className="settingsRow">
-                                        <div>
-                                            <div className="cardLabel">Room</div>
-                                            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 3, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                                                {room.rid}
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            className={`btn ${amReady ? "" : "primary"}`}
-                                            onClick={() => {
-                                                acceptRoomStateRef.current = true;
-                                                wsRef.current?.send({ type: "ready", data: { ready: !amReady } });
-                                            }}
-                                        >
-                                            {amReady ? "Unready" : "Ready"}
-                                        </button>
+                            <div className="card" style={{ maxWidth: 520, margin: "0 auto", padding: 14 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                        <span className="mutedSmall">Room</span>
+                                        <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontWeight: 700, letterSpacing: 2, fontSize: 15, color: "var(--text)" }}>
+                                            {room.rid}
+                                        </span>
                                     </div>
 
-                                    {isHost && room.status === "LOBBY" && (
-                                        <div className="settingsRow">
-                                            <span className="mutedSmall">Mode</span>
-                                            <div className="pillRow">
-                                                {(["short", "medium", "long", "mixed"] as const).map((m) => (
-                                                    <button
-                                                        key={m}
-                                                        className={`pill ${room.promptMode === m ? "active" : ""}`}
-                                                        onClick={() => wsRef.current?.send({ type: "set_prompt_mode", data: { promptMode: m } })}
-                                                    >
-                                                        {m}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                    <button
+                                        className={`btn ${amReady ? "" : "primary"}`}
+                                        style={{ height: 38, padding: "0 16px", fontSize: 14, borderRadius: 10 }}
+                                        onClick={() => {
+                                            acceptRoomStateRef.current = true;
+                                            wsRef.current?.send({ type: "ready", data: { ready: !amReady } });
+                                        }}
+                                    >
+                                        {amReady ? "Unready" : "Ready"}
+                                    </button>
                                 </div>
 
-                                <div className="card" style={{ marginTop: 12 }}>
-                                    <div className="cardLabel" style={{ marginBottom: 10 }}>Players</div>
-                                    <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-                                        {room.players.map((p) => {
-                                            const line = playerLines.find((l) => l.pid === p.pid);
-                                            return (
-                                                <li key={p.pid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                    <span style={{ color: line?.color ?? "var(--text)", fontWeight: 700 }}>
-                                                        {p.name}{p.pid === pid ? " (you)" : ""}
-                                                    </span>
-                                                    <span className="mutedSmall" style={{ color: p.ready ? "var(--text)" : "var(--muted)", fontWeight: p.ready ? 800 : 400 }}>
-                                                        {p.ready ? "✓ Ready" : "Waiting"}
-                                                    </span>
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
+                                {isHost && room.status === "LOBBY" && (
+                                    <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+                                        {(["short", "medium", "long", "mixed"] as const).map((m) => (
+                                            <button
+                                                key={m}
+                                                className={`pill ${room.promptMode === m ? "active" : ""}`}
+                                                style={{ padding: "5px 12px", fontSize: 12, borderRadius: 999, fontWeight: 600 }}
+                                                onClick={() => wsRef.current?.send({ type: "set_prompt_mode", data: { promptMode: m } })}
+                                            >
+                                                {m}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+                                    {room.players.map((p) => {
+                                        const line = playerLines.find((l) => l.pid === p.pid);
+                                        return (
+                                            <div key={p.pid} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0" }}>
+                                                <span style={{ color: line?.color ?? "var(--text)", fontSize: 14, fontWeight: 600 }}>
+                                                    {p.name}{p.pid === pid ? " (you)" : ""}
+                                                </span>
+                                                <span style={{ fontSize: 12, color: p.ready ? "var(--text)" : "var(--muted)", fontWeight: p.ready ? 700 : 400 }}>
+                                                    {p.ready ? "✓ Ready" : "Waiting"}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            </>
+                            </div>
                         )}
 
                         <div className="row center" style={{ marginTop: 14 }}>
