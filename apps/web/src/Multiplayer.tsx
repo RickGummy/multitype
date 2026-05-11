@@ -263,7 +263,7 @@ function PromptBoxTrainingExact(props: {
     );
 }
 
-const RACER_COLORS = ["#e8e8e8", "#9a9a9a", "#6e6e6e"] as const;
+const RACER_COLORS = ["#f0f0f0", "#c4c4c4", "#9a9a9a", "#7a7a7a", "#5e5e5e"] as const;
 
 type WpmSample = { tSec: number; wpm: Record<string, number> };
 

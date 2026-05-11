@@ -12,7 +12,7 @@ import (
 	"multiplayer-server/db"
 )
 
-const maxPlayers = 3
+const maxPlayers = 5
 
 type Room struct {
 	mu sync.Mutex
