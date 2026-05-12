@@ -102,9 +102,26 @@ func (r *Room) RemoveClient(pid string) {
 		}
 	}
 
-	if len(r.clients) > 0 {
-        r.resetToLobbyLocked()
-    }
+	switch r.status {
+	case "LOBBY":
+		// nothing to do; players just see one fewer entry
+	case "COUNTDOWN", "RUNNING":
+		// race continues. If the leaver was the last one we were waiting on,
+		// transition the room to FINISHED now.
+		if len(r.clients) > 0 && r.status == "RUNNING" && r.allFinishedLocked() {
+			r.status = "FINISHED"
+			if db.Pool != nil {
+				record := r.buildRaceRecordLocked()
+				go func() {
+					if err := db.SaveRace(context.Background(), record); err != nil {
+						log.Printf("SaveRace error: %v", err)
+					}
+				}()
+			}
+		}
+	case "FINISHED":
+		// post-race; leaving doesn't change anything for the others
+	}
 
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
 }
