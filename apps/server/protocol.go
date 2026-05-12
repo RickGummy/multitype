@@ -12,6 +12,7 @@ type ClientMsg struct {
 
 	PromptMode string `json:"promptMode,omitempty"`
 	Token      string `json:"token,omitempty"`
+	Session    string `json:"session,omitempty"`
 }
 
 type ServerMsg struct {

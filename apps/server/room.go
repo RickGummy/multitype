@@ -13,6 +13,21 @@ import (
 )
 
 const maxPlayers = 5
+const rejoinGrace = 30 * time.Second
+
+type SuspendedSession struct {
+	pid        string
+	name       string
+	userID     string
+	cursor     int
+	mistakes   int
+	wpm        float64
+	acc        float64
+	status     string
+	durationMs int64
+	placement  int
+	purgeTimer *time.Timer
+}
 
 type Room struct {
 	mu sync.Mutex
@@ -28,15 +43,17 @@ type Room struct {
 	promptMode  string
 	finishOrder []string
 
-	clients map[string]*Client
-	prompts []string
+	clients   map[string]*Client
+	suspended map[string]*SuspendedSession // keyed by session token
+	prompts   []string
 }
 
 func NewRoom(rid string) *Room {
 	return &Room{
-		rid:     rid,
-		status:  "LOBBY",
-		clients: make(map[string]*Client),
+		rid:       rid,
+		status:    "LOBBY",
+		clients:   make(map[string]*Client),
+		suspended: make(map[string]*SuspendedSession),
 		prompts: []string{
 			"The quick brown fox jumps over the lazy dog.",
 			"This is a really fun thing to code",
@@ -431,7 +448,150 @@ func (r *Room) IsEmpty() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return len(r.clients) == 0
+	return len(r.clients) == 0 && len(r.suspended) == 0
+}
+
+// SuspendClient holds a disconnected client's state for rejoinGrace so they can rejoin.
+// Returns true if the client was actually suspended (and should NOT be hard-removed).
+// Returns false if the disconnect should be treated as a normal full removal.
+func (r *Room) SuspendClient(pid, session string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	c, ok := r.clients[pid]
+	if !ok {
+		return false
+	}
+	// Only suspend during an active race. In LOBBY/FINISHED, just remove.
+	if r.status != "COUNTDOWN" && r.status != "RUNNING" {
+		return false
+	}
+	if session == "" {
+		return false
+	}
+
+	snap := &SuspendedSession{
+		pid:        c.pid,
+		name:       c.name,
+		userID:     c.userID,
+		cursor:     c.cursor,
+		mistakes:   c.mistakes,
+		wpm:        c.wpm,
+		acc:        c.acc,
+		status:     c.status,
+		durationMs: c.durationMs,
+		placement:  c.placement,
+	}
+
+	delete(r.clients, pid)
+	if r.hostPid == pid {
+		r.hostPid = ""
+		for otherPid := range r.clients {
+			r.hostPid = otherPid
+			break
+		}
+	}
+
+	r.suspended[session] = snap
+
+	// Capture rid for the purge timer so it doesn't close over `r` lock issues.
+	rid := r.rid
+	snap.purgeTimer = time.AfterFunc(rejoinGrace, func() {
+		r.purgeSuspended(session, rid)
+	})
+
+	// If the suspended player was the only one we were waiting on, finish the race.
+	if r.status == "RUNNING" && len(r.clients) > 0 && r.allFinishedLocked() {
+		r.status = "FINISHED"
+		if db.Pool != nil {
+			record := r.buildRaceRecordLocked()
+			go func() {
+				if err := db.SaveRace(context.Background(), record); err != nil {
+					log.Printf("SaveRace error: %v", err)
+				}
+			}()
+		}
+	}
+
+	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+	return true
+}
+
+func (r *Room) purgeSuspended(session, rid string) {
+	r.mu.Lock()
+	snap, ok := r.suspended[session]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	delete(r.suspended, session)
+	// Re-check race end after the player is fully gone.
+	if r.status == "RUNNING" && len(r.clients) > 0 && r.allFinishedLocked() {
+		r.status = "FINISHED"
+		if db.Pool != nil {
+			record := r.buildRaceRecordLocked()
+			go func() {
+				if err := db.SaveRace(context.Background(), record); err != nil {
+					log.Printf("SaveRace error: %v", err)
+				}
+			}()
+		}
+	}
+	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+	r.mu.Unlock()
+	log.Printf("rejoin window expired rid=%s pid=%s", rid, snap.pid)
+}
+
+// RejoinClient restores a suspended session onto the given new Client connection.
+// Returns true on success. The Client's pid and session fields are overwritten with the suspended ones.
+// Fails if the race already finished while the client was away — the client should
+// bounce back to the multiplayer home screen.
+func (r *Room) RejoinClient(c *Client, session string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	snap, ok := r.suspended[session]
+	if !ok {
+		return false
+	}
+
+	// If the race ended while they were gone, drop the session and tell them to start over.
+	if r.status != "COUNTDOWN" && r.status != "RUNNING" {
+		if snap.purgeTimer != nil {
+			snap.purgeTimer.Stop()
+		}
+		delete(r.suspended, session)
+		return false
+	}
+
+	if snap.purgeTimer != nil {
+		snap.purgeTimer.Stop()
+	}
+	delete(r.suspended, session)
+
+	// Restore identity onto the new connection.
+	c.pid = snap.pid
+	c.session = session
+	c.userID = snap.userID
+	c.name = snap.name
+	c.roomID = r.rid
+
+	c.cursor = snap.cursor
+	c.mistakes = snap.mistakes
+	c.wpm = snap.wpm
+	c.acc = snap.acc
+	c.status = snap.status
+	c.durationMs = snap.durationMs
+	c.placement = snap.placement
+	c.ready = false
+
+	r.clients[c.pid] = c
+	if r.hostPid == "" {
+		r.hostPid = c.pid
+	}
+
+	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+	return true
 }
 
 func (r *Room) RestartRound(pid string) {

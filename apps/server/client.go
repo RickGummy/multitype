@@ -15,11 +15,12 @@ type Client struct {
 	hub  *Hub
 	conn *websocket.Conn
 
-	pid    string
-	userID string
-	send   chan ServerMsg
-	name   string
-	roomID string
+	pid     string
+	session string
+	userID  string
+	send    chan ServerMsg
+	name    string
+	roomID  string
 
 	ready      bool
 	cursor     int
@@ -33,10 +34,11 @@ type Client struct {
 
 func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 	return &Client{
-		hub:  hub,
-		conn: conn,
-		pid:  newID(8),
-		send: make(chan ServerMsg, 64),
+		hub:     hub,
+		conn:    conn,
+		pid:     newID(8),
+		session: newID(24),
+		send:    make(chan ServerMsg, 64),
 
 		name: "",
 		acc:  100,
@@ -87,7 +89,7 @@ func (c *Client) readPump() {
 
 	c.send <- ServerMsg{
 		Type: "hello",
-		Data: map[string]any{"pid": c.pid},
+		Data: map[string]any{"pid": c.pid, "session": c.session},
 	}
 
 	for {
@@ -192,6 +194,26 @@ func (c *Client) handle(m ClientMsg) {
 
 		c.send <- ServerMsg{Type: "room_joined", Rid: room.rid, Data: map[string]any{"rid": room.rid}}
 
+	case "rejoin":
+		if m.Rid == "" || m.Session == "" {
+			c.send <- ServerMsg{Type: "rejoin_failed", Err: "missing rid or session"}
+			return
+		}
+		room, ok := c.hub.GetRoom(m.Rid)
+		if !ok {
+			c.send <- ServerMsg{Type: "rejoin_failed", Err: "room not found"}
+			return
+		}
+		if !room.RejoinClient(c, m.Session) {
+			c.send <- ServerMsg{Type: "rejoin_failed", Err: "session expired"}
+			return
+		}
+		c.send <- ServerMsg{
+			Type: "rejoin_ok",
+			Rid:  room.rid,
+			Data: map[string]any{"pid": c.pid, "session": c.session, "rid": room.rid},
+		}
+
 	case "leave_room":
 		if c.roomID == "" {
 			return
@@ -242,7 +264,9 @@ func (c *Client) cleanup() {
 	if c.roomID != "" {
 		if room, ok := c.hub.GetRoom(c.roomID); ok {
 			rid := c.roomID
-			room.RemoveClient(c.pid)
+			if !room.SuspendClient(c.pid, c.session) {
+				room.RemoveClient(c.pid)
+			}
 			c.hub.MaybeDeleteRoom(rid)
 		}
 	}

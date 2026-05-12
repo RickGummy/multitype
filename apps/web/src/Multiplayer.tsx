@@ -439,6 +439,17 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     const hiddenInputRef = useRef<HTMLInputElement | null>(null);
     const acceptRoomStateRef = useRef(false);
 
+    // Current connection's session token (from hello), and the stash that drives rejoin.
+    const sessionRef = useRef<string>("");
+    const persistedSessionRef = useRef<{ rid: string; session: string } | null>((() => {
+        try {
+            const raw = sessionStorage.getItem("multitype:rejoin");
+            return raw ? JSON.parse(raw) : null;
+        } catch {
+            return null;
+        }
+    })());
+
     const roomRef = useRef<RoomState | null>(null);
 
     useEffect(() => {
@@ -448,11 +459,52 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     useEffect(() => {
         const ws = new WSClient((m: WSMsg) => {
             if (m.type === "hello") {
-                const d = m.data as { pid?: string } | undefined;
+                const d = m.data as { pid?: string; session?: string } | undefined;
+                sessionRef.current = d?.session ?? "";
+
+                // If we have a stashed session, try to rejoin instead of starting fresh.
+                const stash = persistedSessionRef.current;
+                if (stash && stash.rid && stash.session) {
+                    ws.send({ type: "rejoin", rid: stash.rid, data: { session: stash.session } });
+                    return;
+                }
+
                 setPid(d?.pid ?? "");
                 if (tokenRef.current) {
                     ws.send({ type: "auth", data: { token: tokenRef.current } });
                 }
+            }
+            if (m.type === "room_joined") {
+                const d = m.data as { rid?: string } | undefined;
+                if (d?.rid && sessionRef.current) {
+                    const entry = { rid: d.rid, session: sessionRef.current };
+                    persistedSessionRef.current = entry;
+                    try { sessionStorage.setItem("multitype:rejoin", JSON.stringify(entry)); } catch { /* ignore */ }
+                }
+            }
+            if (m.type === "rejoin_ok") {
+                const d = m.data as { pid?: string; session?: string; rid?: string } | undefined;
+                if (d?.pid) setPid(d.pid);
+                if (d?.session) sessionRef.current = d.session;
+                if (d?.rid && d?.session) {
+                    const entry = { rid: d.rid, session: d.session };
+                    persistedSessionRef.current = entry;
+                    try { sessionStorage.setItem("multitype:rejoin", JSON.stringify(entry)); } catch { /* ignore */ }
+                }
+                acceptRoomStateRef.current = true;
+                if (tokenRef.current) {
+                    ws.send({ type: "auth", data: { token: tokenRef.current } });
+                }
+            }
+            if (m.type === "rejoin_failed") {
+                persistedSessionRef.current = null;
+                try { sessionStorage.removeItem("multitype:rejoin"); } catch { /* ignore */ }
+                acceptRoomStateRef.current = false;
+                setRoom(null);
+                setIsHost(false);
+                setRidInput("");
+                setView("lobby");
+                setJoinError("Your session expired. Please rejoin manually.");
             }
             if (m.type === "room_state") {
                 if (!acceptRoomStateRef.current) {
@@ -755,7 +807,10 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
 
     const onBack = () => {
         if (room?.rid) {
-            // Leave the current room and return to the Multiplayer lobby screen
+            // Intentional leave — clear the rejoin stash so we don't try to come back.
+            persistedSessionRef.current = null;
+            try { sessionStorage.removeItem("multitype:rejoin"); } catch { /* ignore */ }
+
             wsRef.current?.send({ type: "leave_room", data: {} });
             resetToLobbyScreen();
             return;
