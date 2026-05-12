@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import "./App.css";
 import { WSClient } from "./net/ws";
 import type { WSMsg } from "./net/ws"
-import type { RoomState } from "./net/types";
+import type { RoomState, PlayerState } from "./net/types";
 
 const WORD_COUNTS: Record<string, number> = {
     short: 5, // change to 25
@@ -37,7 +37,7 @@ function cleanName(raw: string) {
 }
 
 
-type GhostCursor = { pid: string; cursor: number; color: string };
+type GhostCursor = { pid: string; cursor: number; color: string; faded?: boolean };
 
 function PromptBoxTrainingExact(props: {
     prompt: string;
@@ -204,7 +204,7 @@ function PromptBoxTrainingExact(props: {
                             width: 2,
                             height: gh,
                             background: g.color,
-                            opacity: 0.7,
+                            opacity: g.faded ? 0.3 : 0.7,
                             borderRadius: 1,
                             pointerEvents: "none",
                             transform: `translate(${pos.x}px, ${pos.y + (pos.h - gh) / 2}px)`,
@@ -562,18 +562,58 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     }, [room?.seed, room?.promptMode, lists]);
 
 
-    const me = room?.players.find((p) => p.pid === pid);
-    const amReady = me?.ready ?? false;
+    // Mirror room.players additively so opponents who drop mid-race retain their last-known state.
+    const [lastKnown, setLastKnown] = useState<Map<string, PlayerState>>(new Map());
+    useEffect(() => {
+        if (!room) {
+            setLastKnown(new Map());
+            return;
+        }
+        setLastKnown((prev) => {
+            const next = new Map(prev);
+            for (const p of room.players) next.set(p.pid, p);
+            return next;
+        });
+    }, [room]);
+
+    // Snapshot of participant ordering taken when the race starts.
+    // Layout (split-screen vs ghost-shadowing) is decided from this and never shifts mid-race.
+    const [raceParticipants, setRaceParticipants] = useState<string[] | null>(null);
+    useEffect(() => {
+        if (!room) {
+            setRaceParticipants(null);
+            return;
+        }
+        if (room.status === "LOBBY" || room.status === "COUNTDOWN") {
+            setRaceParticipants(null);
+        } else if ((room.status === "RUNNING" || room.status === "FINISHED") && raceParticipants == null) {
+            setRaceParticipants(room.players.map((p) => p.pid));
+        }
+    }, [room?.status, room?.players, raceParticipants, room]);
+
+    const liveMap = new Map(room?.players.map((p) => [p.pid, p] as const) ?? []);
+    const isRacing = room?.status === "RUNNING" || room?.status === "FINISHED";
+
+    const displayPlayers: PlayerState[] = isRacing && raceParticipants
+        ? raceParticipants
+            .map((pp) => liveMap.get(pp) ?? lastKnown.get(pp))
+            .filter((p): p is PlayerState => p != null)
+        : (room?.players ?? []);
+
+    const isDisconnected = (playerPid: string) =>
+        isRacing && raceParticipants != null && !liveMap.has(playerPid);
+
+    const me = displayPlayers.find((p) => p.pid === pid);
+    const amReady = liveMap.get(pid)?.ready ?? false;
 
     const myStatus = me?.status ?? "NONE";
-    const opponents = room?.players.filter((p) => p.pid !== pid) ?? [];
+    const opponents = displayPlayers.filter((p) => p.pid !== pid);
 
-    // Assign stable colors: me=red, opp1=blue, opp2=green
     const playerLines = room ? [
         { pid, color: RACER_COLORS[0], name: me?.name || "You" },
         ...opponents.map((p, i) => ({
             pid: p.pid,
-            color: RACER_COLORS[i + 1] ?? RACER_COLORS[1],
+            color: RACER_COLORS[i + 1] ?? RACER_COLORS[RACER_COLORS.length - 1],
             name: p.name || `Racer ${i + 2}`,
         })),
     ] : [];
@@ -977,9 +1017,9 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
 
                                 <div style={{ background: "var(--border)", alignSelf: "stretch" }} />
 
-                                <div>
+                                <div style={{ opacity: isDisconnected(opponents[0].pid) ? 0.55 : 1, transition: "opacity 200ms ease" }}>
                                     <div className="cardLabel" style={{ marginBottom: 8, color: RACER_COLORS[1], display: "flex", justifyContent: "space-between" }}>
-                                        <span>{opponents[0].name || "Opponent"}</span>
+                                        <span>{opponents[0].name || "Opponent"}{isDisconnected(opponents[0].pid) ? " · disconnected" : ""}</span>
                                         <span className="mutedSmall">
                                             {(opponents[0].wpm ?? 0).toFixed(0)} WPM
                                             {opponents[0].status === "FINISHED" ? " · finished" : ""}
@@ -991,7 +1031,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                                 prompt={prompt}
                                                 typedLen={opponents[0].cursor}
                                                 caretIndex={opponents[0].cursor}
-                                                isTyping={true}
+                                                isTyping={!isDisconnected(opponents[0].pid)}
                                             />
                                         ) : (
                                             <div className="promptBox" style={{ opacity: 0.6 }}>(loading prompt…)</div>
@@ -1015,7 +1055,8 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                                         ghostCursors={opponents.map((p, i) => ({
                                             pid: p.pid,
                                             cursor: p.cursor,
-                                            color: RACER_COLORS[i + 1] ?? RACER_COLORS[1],
+                                            color: RACER_COLORS[i + 1] ?? RACER_COLORS[RACER_COLORS.length - 1],
+                                            faded: isDisconnected(p.pid),
                                         }))}
                                     />
                                 ) : (
@@ -1033,12 +1074,17 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                         {opponents.length >= 2 && (
                             <div style={{ marginTop: 14, display: "flex", justifyContent: "center", gap: 18, flexWrap: "wrap" }}>
                                 {opponents.map((p, i) => {
-                                    const color = RACER_COLORS[i + 1] ?? RACER_COLORS[1];
+                                    const color = RACER_COLORS[i + 1] ?? RACER_COLORS[RACER_COLORS.length - 1];
+                                    const offline = isDisconnected(p.pid);
                                     return (
-                                        <span key={p.pid} className="mutedSmall" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                            <span style={{ width: 8, height: 8, borderRadius: 2, background: color, opacity: 0.6, display: "inline-block" }} />
+                                        <span key={p.pid} className="mutedSmall" style={{ display: "inline-flex", alignItems: "center", gap: 6, opacity: offline ? 0.55 : 1 }}>
+                                            <span style={{ width: 8, height: 8, borderRadius: 2, background: color, opacity: offline ? 0.35 : 0.6, display: "inline-block" }} />
                                             <span style={{ color }}>{p.name || `Racer ${i + 2}`}</span>
-                                            <span style={{ opacity: 0.7 }}>{(p.wpm ?? 0).toFixed(0)} WPM{p.status === "FINISHED" ? " · finished" : ""}</span>
+                                            <span style={{ opacity: 0.7 }}>
+                                                {(p.wpm ?? 0).toFixed(0)} WPM
+                                                {p.status === "FINISHED" ? " · finished" : ""}
+                                                {offline ? " · disconnected" : ""}
+                                            </span>
                                         </span>
                                     );
                                 })}
@@ -1054,7 +1100,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                 {view === "stats" && room && (
                     <>
                         <div className="statsGrid">
-                            {room.players
+                            {displayPlayers
                                 .slice()
                                 .sort((a, b) => (b.wpm ?? 0) - (a.wpm ?? 0))
                                 .map((p, i) => {
