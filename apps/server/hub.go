@@ -26,7 +26,7 @@ func (h *Hub) CreateRoom(owner *Client) *Room {
 	defer h.mu.Unlock()
 
 	rid := newID(4)
-	room := NewRoom(rid)
+	room := NewRoom(rid, h)
 	room.SetHost(owner.pid)
 	h.rooms[rid] = room
 	log.Printf("room created rid=%s", rid)

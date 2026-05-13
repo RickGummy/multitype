@@ -135,7 +135,7 @@ func (c *Client) handle(m ClientMsg) {
 		}
 
 	case "set_name":
-		c.name = m.Name
+		c.name = sanitizeName(m.Name)
 		if c.roomID != "" {
 			if room, ok := c.hub.GetRoom(c.roomID); ok {
 				room.SetName(c.pid, c.name)
@@ -159,7 +159,7 @@ func (c *Client) handle(m ClientMsg) {
 
 	case "create_room":
 		if m.Name != "" {
-			c.name = m.Name
+			c.name = sanitizeName(m.Name)
 		}
 		room := c.hub.CreateRoom(c)
 		if c.name != "" {
@@ -188,7 +188,7 @@ func (c *Client) handle(m ClientMsg) {
 		}
 
 		if m.Name != "" {
-			c.name = m.Name
+			c.name = sanitizeName(m.Name)
 			room.SetName(c.pid, c.name)
 		}
 

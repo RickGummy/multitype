@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +31,8 @@ type SuspendedSession struct {
 type Room struct {
 	mu sync.Mutex
 
+	hub *Hub
+
 	rid          string
 	hostPid      string
 	status       string
@@ -48,8 +49,9 @@ type Room struct {
 	prompts   []string
 }
 
-func NewRoom(rid string) *Room {
+func NewRoom(rid string, hub *Hub) *Room {
 	return &Room{
+		hub:       hub,
 		rid:       rid,
 		status:    "LOBBY",
 		clients:   make(map[string]*Client),
@@ -73,12 +75,12 @@ func (r *Room) AddClient(c *Client) bool {
 		return false
 	}
 
-	trimmed := strings.TrimSpace(c.name)
-	if trimmed == "" {
+	clean := sanitizeName(c.name)
+	if clean == "" {
 		r.guestCounter++
 		c.name = fmt.Sprintf("Guest %d", r.guestCounter)
 	} else {
-		c.name = trimmed
+		c.name = clean
 	}
 
 	r.clients[c.pid] = c
@@ -90,7 +92,7 @@ func (r *Room) AddClient(c *Client) bool {
 }
 
 func normalizeName(name string) string {
-	return strings.TrimSpace(name)
+	return sanitizeName(name)
 }
 
 func displayName(s string) string {
@@ -148,9 +150,9 @@ func (r *Room) SetName(pid, name string) {
 	defer r.mu.Unlock()
 
 	if c, ok := r.clients[pid]; ok {
-		trimmed := strings.TrimSpace(name)
-		if trimmed != "" {
-			c.name = trimmed
+		clean := sanitizeName(name)
+		if clean != "" {
+			c.name = clean
 		}
 	}
 
@@ -538,8 +540,15 @@ func (r *Room) purgeSuspended(session, rid string) {
 		}
 	}
 	r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+	empty := len(r.clients) == 0 && len(r.suspended) == 0
 	r.mu.Unlock()
+
 	log.Printf("rejoin window expired rid=%s pid=%s", rid, snap.pid)
+
+	// Avoid holding the room lock while taking the hub lock — opposite order to JoinRoom.
+	if empty && r.hub != nil {
+		r.hub.MaybeDeleteRoom(rid)
+	}
 }
 
 // RejoinClient restores a suspended session onto the given new Client connection.

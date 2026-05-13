@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -18,7 +20,14 @@ var jwtSecret = func() []byte {
 	if s := os.Getenv("JWT_SECRET"); s != "" {
 		return []byte(s)
 	}
-	return []byte("dev-secret-change-in-production")
+	log.Println("⚠️  JWT_SECRET not set — generating an ephemeral random secret.")
+	log.Println("⚠️  Existing tokens will be invalidated on every server restart.")
+	log.Println("⚠️  Set JWT_SECRET to a 32+ char secret in production.")
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("failed to generate jwt secret: %v", err)
+	}
+	return b
 }()
 
 // --- helpers ---
@@ -95,8 +104,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "username must be 2–32 characters")
 		return
 	}
-	if len(body.Password) < 6 {
-		writeErr(w, http.StatusBadRequest, "password must be at least 6 characters")
+	if len(body.Password) < 8 {
+		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
 

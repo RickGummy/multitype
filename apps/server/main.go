@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"log"
 	"net/http"
+	"time"
 
 	"multiplayer-server/db"
 
@@ -68,8 +69,9 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mux.HandleFunc("/api/auth/register", handleRegister)
-	mux.HandleFunc("/api/auth/login", handleLogin)
+	authLimiter := NewRateLimiter(10, time.Minute)
+	mux.HandleFunc("/api/auth/register", authLimiter.limit(handleRegister))
+	mux.HandleFunc("/api/auth/login", authLimiter.limit(handleLogin))
 	mux.HandleFunc("/api/me", handleMe)
 	mux.HandleFunc("/api/profile/", handleProfile)
 
