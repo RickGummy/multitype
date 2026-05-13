@@ -3,6 +3,7 @@ import "./App.css";
 import { WSClient } from "./net/ws";
 import type { WSMsg } from "./net/ws"
 import type { RoomState, PlayerState } from "./net/types";
+import { EXPECTED_WORDLIST_VERSION } from "./net/types";
 
 const WORD_COUNTS: Record<string, number> = {
     short: 5, // change to 25
@@ -577,9 +578,17 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
         loadLists();
     }, []);
 
+    const [versionMismatch, setVersionMismatch] = useState(false);
+
     useEffect(() => {
         if (!room || !lists) return;
         if (!room.seed || !room.promptMode) return;
+
+        if (room.wordlistVersion && room.wordlistVersion !== EXPECTED_WORDLIST_VERSION) {
+            setVersionMismatch(true);
+            return;
+        }
+        if (versionMismatch) setVersionMismatch(false);
 
         const rand = (() => {
             let a = room.seed >>> 0;
@@ -861,6 +870,22 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
 
             <div className="container" style={{ maxWidth: view === "battle" && opponents.length === 1 ? 1400 : undefined }}>
                 <h1 className="title">Multiplayer</h1>
+
+                {versionMismatch && (
+                    <div style={{
+                        margin: "0 auto 14px",
+                        maxWidth: 520,
+                        padding: "10px 14px",
+                        border: "1px solid var(--danger)",
+                        borderRadius: 12,
+                        background: "rgba(255, 90, 95, 0.08)",
+                        color: "var(--text)",
+                        fontSize: 13,
+                        textAlign: "center",
+                    }}>
+                        The server's word lists are a different version than this page. Please reload to continue.
+                    </div>
+                )}
 
                 {view === "lobby" && (
                     <>

@@ -33,12 +33,18 @@ type PlayerState struct {
 	Status   string  `json:"status"`
 }
 
+// WordlistVersion identifies the content version of the word lists in apps/web/public/.
+// Bump when any of short/medium/long/mixed.txt changes. Clients refuse to play if their
+// expected version doesn't match what the server broadcasts.
+const WordlistVersion = "v1"
+
 type RoomState struct {
-	Rid        string        `json:"rid"`
-	Status     string        `json:"status"`
-	Prompt     string        `json:"prompt"`
-	StartAtMs  int64         `json:"startAtMs"`
-	Seed	   int64		 `json:"seed"`
-	PromptMode string        `json:"promptMode"`
-	Players    []PlayerState `json:"players"`
+	Rid             string        `json:"rid"`
+	Status          string        `json:"status"`
+	Prompt          string        `json:"prompt"`
+	StartAtMs       int64         `json:"startAtMs"`
+	Seed            int64         `json:"seed"`
+	PromptMode      string        `json:"promptMode"`
+	WordlistVersion string        `json:"wordlistVersion"`
+	Players         []PlayerState `json:"players"`
 }

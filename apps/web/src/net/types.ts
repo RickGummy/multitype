@@ -16,7 +16,11 @@ export type RoomState = {
     startAtMs: number;
     seed: number;
     promptMode: "short" | "medium" | "long" | "mixed";
+    wordlistVersion?: string;
 
     players: PlayerState[];
 };
+
+// Must match `WordlistVersion` in apps/server/protocol.go. Bump when word lists change.
+export const EXPECTED_WORDLIST_VERSION = "v1";
 

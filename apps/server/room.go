@@ -426,13 +426,14 @@ func (r *Room) snapshotLocked() RoomState {
 	})
 
 	return RoomState{
-		Rid:		r.rid,
-		Status:		r.status,
-		Prompt:		r.prompt,
-		StartAtMs:  r.startAtMs,
-		PromptMode: r.promptMode,
-		Seed:		r.seed,
-		Players:    players,
+		Rid:             r.rid,
+		Status:          r.status,
+		Prompt:          r.prompt,
+		StartAtMs:       r.startAtMs,
+		PromptMode:      r.promptMode,
+		Seed:            r.seed,
+		WordlistVersion: WordlistVersion,
+		Players:         players,
 	}
 }
 
