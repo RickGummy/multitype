@@ -378,7 +378,20 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     const [pid, setPid] = useState<string>("");
     const [room, setRoom] = useState<RoomState | null>(null);
     const [ridInput, setRidInput] = useState("");
-    const [name, setName] = useState("");
+    const [name, setName] = useState(() => {
+        try {
+            return localStorage.getItem("multitype:name") ?? "";
+        } catch {
+            return "";
+        }
+    });
+
+    useEffect(() => {
+        const trimmed = name.trim();
+        try {
+            if (trimmed) localStorage.setItem("multitype:name", trimmed);
+        } catch { /* ignore */ }
+    }, [name]);
 
     const [typed, setTyped] = useState("");
 
@@ -579,6 +592,15 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     }, []);
 
     const [versionMismatch, setVersionMismatch] = useState(false);
+    const [roomCopied, setRoomCopied] = useState(false);
+
+    const copyRoomCode = async (code: string) => {
+        try {
+            await navigator.clipboard.writeText(code);
+            setRoomCopied(true);
+            window.setTimeout(() => setRoomCopied(false), 1200);
+        } catch { /* ignore */ }
+    };
 
     useEffect(() => {
         if (!room || !lists) return;
@@ -952,11 +974,32 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
                         ) : (
                             <div className="card" style={{ maxWidth: 520, margin: "0 auto", padding: 14 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <span className="mutedSmall">Room</span>
-                                        <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontWeight: 700, letterSpacing: 2, fontSize: 15, color: "var(--text)" }}>
+                                        <button
+                                            onClick={() => copyRoomCode(room.rid)}
+                                            title="Copy room code"
+                                            style={{
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: 6,
+                                                padding: "4px 10px",
+                                                borderRadius: 8,
+                                                border: "1px solid var(--border)",
+                                                background: "transparent",
+                                                color: "var(--text)",
+                                                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                                fontWeight: 700,
+                                                letterSpacing: 2,
+                                                fontSize: 15,
+                                                cursor: "pointer",
+                                            }}
+                                        >
                                             {room.rid}
-                                        </span>
+                                            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0, opacity: 0.7, fontFamily: "system-ui, -apple-system, sans-serif", marginLeft: 2 }}>
+                                                {roomCopied ? "copied" : "copy"}
+                                            </span>
+                                        </button>
                                     </div>
 
                                     <button
