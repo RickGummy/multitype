@@ -1,3 +1,11 @@
+// A simple in-memory rate limiter keyed by client IP. Used on login and register
+// to slow down anyone trying to brute-force passwords.
+//
+// Implementation is a fixed-window counter: each IP gets `max` attempts per
+// `window`. If they exceed that they get 429s back until the window resets.
+//
+// It's in-process only. If we ran the server on more than one machine we'd
+// have to swap this out for a Redis-backed limiter so the count is shared.
 package main
 
 import (
@@ -8,16 +16,17 @@ import (
 	"time"
 )
 
+// bucket = one IP's current counter.
 type bucket struct {
-	count     int
-	resetAt   time.Time
+	count   int
+	resetAt time.Time
 }
 
 type RateLimiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-	max      int
-	window   time.Duration
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	max     int           // attempts allowed per window
+	window  time.Duration // length of the window
 }
 
 func NewRateLimiter(maxAttempts int, window time.Duration) *RateLimiter {
@@ -30,6 +39,8 @@ func NewRateLimiter(maxAttempts int, window time.Duration) *RateLimiter {
 	return rl
 }
 
+// gc evicts expired buckets so the map doesn't grow unbounded.
+// Runs once per window in a background goroutine.
 func (rl *RateLimiter) gc() {
 	for {
 		time.Sleep(rl.window)
@@ -63,6 +74,8 @@ func (rl *RateLimiter) Allow(key string) (allowed bool, retryAfter int) {
 	return true, 0
 }
 
+// clientIP returns the client's IP. Prefers X-Forwarded-For (when running
+// behind a proxy/load balancer) then falls back to the direct RemoteAddr.
 func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		// Take the first IP in the list.

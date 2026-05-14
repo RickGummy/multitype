@@ -1,3 +1,14 @@
+// auth.go handles user registration, login, token verification, and the profile
+// endpoints. Passwords are stored as bcrypt hashes; tokens are HS256 JWTs signed
+// with jwtSecret. The frontend keeps the token in localStorage and sends it back
+// either as an Authorization: Bearer header on HTTP requests, or in an `auth`
+// message over the WebSocket.
+//
+// A few hardening notes that are easy to miss:
+// jwtSecret falls back to a fresh random value if JWT_SECRET isn't set, so we
+// never ship with a guessable default. Login and register are rate-limited by
+// main.go to slow down brute forcers. JWT parsing pins HS256, which blocks
+// the classic "alg: none" attack where someone strips the signature.
 package main
 
 import (
@@ -16,6 +27,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// jwtSecret signs every JWT and is checked against every incoming one.
+// Setup priority:
+//   1. Read JWT_SECRET from env (set via .env or shell export). Use that.
+//   2. If missing, generate a fresh random 32-byte secret at startup.
+//      Safe but ephemeral: every restart invalidates all existing tokens.
+//      We log a loud warning so it's obvious in dev.
+//
+// Critically: there is NO hardcoded string fallback. If there were, anyone reading
+// the repo could forge tokens for any user.
 var jwtSecret = func() []byte {
 	if s := os.Getenv("JWT_SECRET"); s != "" {
 		return []byte(s)
@@ -42,6 +62,8 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// makeToken builds an HS256 JWT for the given user with a 30-day expiry.
+// The frontend treats this as opaque -- it never reads the payload.
 func makeToken(userID, username string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub":      userID,
@@ -51,7 +73,13 @@ func makeToken(userID, username string) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(jwtSecret)
 }
 
-// validateToken parses and validates a JWT string and returns the associated user.
+// validateToken parses and verifies a JWT string and returns the user it identifies.
+// Returns (nil, nil) for invalid or expired tokens -- callers treat that as
+// "unauthenticated" rather than an error.
+//
+// WithValidMethods locks the parser to HS256. Without this, an attacker can send
+// a token with "alg": "none" and no signature, and some JWT libraries will
+// accept it as valid. This is a well-known JWT attack so it's worth being explicit.
 func validateToken(ctx context.Context, tokenStr string) (*db.User, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
 		return jwtSecret, nil
@@ -84,6 +112,9 @@ func UserFromRequest(r *http.Request) (*db.User, error) {
 
 // --- handlers ---
 
+// handleRegister: POST /api/auth/register
+// Body: {"username", "password"}
+// Returns: {"token", "id", "username"} on success.
 func handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -144,6 +175,11 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleLogin: POST /api/auth/login
+// Body: {"username", "password"}
+// Returns: {"token", "id", "username"} on success, 401 on bad creds.
+// Note: same error message for "user doesn't exist" and "wrong password" -- this
+// stops attackers from enumerating valid usernames.
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")

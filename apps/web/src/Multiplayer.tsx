@@ -1,3 +1,21 @@
+// Multiplayer.tsx is the multiplayer typing race screen. It's the biggest file
+// in the project because it owns the whole game loop on the client side: the
+// WebSocket connection, the local typing state, and three different views
+// (lobby, battle, stats).
+//
+// The component renders whatever the server says, full stop. There is no
+// client-side game logic. The server decides when to start the countdown,
+// when the race is running, when it's done, who placed where. The client
+// just sends keystrokes and renders the latest room_state snapshot.
+//
+// Going top to bottom in this file you'll find:
+//   the WORD_COUNTS constant
+//   a few math helpers (nowMs, lerp, clamp, cleanName)
+//   PromptBoxTrainingExact, which renders a prompt with the animated caret
+//     and optional ghost cursors for opponents
+//   SharedWpmChart, the multi-line chart on the stats screen
+//   the big Multiplayer component (default export)
+
 import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
 import "./App.css";
 import { WSClient } from "./net/ws";
@@ -5,6 +23,8 @@ import type { WSMsg } from "./net/ws"
 import type { RoomState, PlayerState } from "./net/types";
 import { EXPECTED_WORDLIST_VERSION } from "./net/types";
 
+// Number of words to generate per prompt for each mode.
+// (The "5" for short is intentional for fast playtesting; bump to 25 for normal play.)
 const WORD_COUNTS: Record<string, number> = {
     short: 5, // change to 25
     medium: 30,
@@ -38,8 +58,23 @@ function cleanName(raw: string) {
 }
 
 
+// GhostCursor: an opponent's caret rendered on YOUR prompt (3+ player races).
+// `cursor` is their character index into the prompt; we look up the matching
+// <span data-i={cursor}> in the DOM and position the ghost there.
 type GhostCursor = { pid: string; cursor: number; color: string; faded?: boolean };
 
+// PromptBoxTrainingExact renders the prompt as a series of per-character spans
+// (each with a data-i attribute so we can find them later by index). It also
+// owns the caret: a thin vertical bar that slides along the prompt as you type,
+// driven by a requestAnimationFrame loop that smoothly lerps the caret toward
+// its target position.
+//
+// In 3+ player races it can also render "ghost cursors" -- translucent extra
+// bars showing where each opponent is in the same prompt. Those snap into
+// position with a CSS transition rather than getting their own animation loop.
+//
+// The caret animation is the most subtle thing in this whole component; see
+// the layout effects and the rAF loop below for the details.
 function PromptBoxTrainingExact(props: {
     prompt: string;
     typedLen: number;
@@ -74,6 +109,13 @@ function PromptBoxTrainingExact(props: {
     }, [prompt]);
 
 
+    // requestAnimationFrame loop that smoothly slides the caret toward its target.
+    // The target is a ref (caretTargetRef) updated by the layout effect below;
+    // this loop just lerps the displayed position toward it every frame.
+    //
+    // The lerp factor uses exponential smoothing: t = 1 - exp(-SMOOTH * dt).
+    // This makes the motion framerate-independent (slow frame -> bigger t, fast
+    // frame -> smaller t), so it always feels the same regardless of FPS.
     useEffect(() => {
         lastFrameRef.current = performance.now();
 
@@ -81,7 +123,7 @@ function PromptBoxTrainingExact(props: {
             const dt = clamp((now - lastFrameRef.current) / 1000, 0, 0.05);
             lastFrameRef.current = now;
 
-            const SMOOTH = 28;
+            const SMOOTH = 28; // higher = snappier; ~28 feels alive but weighty
             const t = 1 - Math.exp(-SMOOTH * dt);
             const target = caretTargetRef.current;
 
@@ -102,6 +144,14 @@ function PromptBoxTrainingExact(props: {
     }, []);
 
 
+    // Layout effect that runs after every render where caretIndex or prompt changed.
+    // Measures the target position of the caret (where the <span data-i={caretIndex}>
+    // sits in the DOM) and writes it into caretTargetRef. The rAF loop above then
+    // smoothly animates toward this target.
+    //
+    // Snap-on-jump optimization: if the target moved more than 200px (e.g. a line
+    // wrap), abandon the lerp and teleport. Otherwise you'd see a diagonal slide
+    // across the screen which looks awful.
     useLayoutEffect(() => {
         const update = () => {
             const box = promptBoxRef.current;
@@ -123,7 +173,7 @@ function PromptBoxTrainingExact(props: {
             setCaret((cur) => {
                 const dx = Math.abs(cur.x - x);
                 const dy = Math.abs(cur.y - y);
-                if (dx + dy > 200) return { x, y, h };
+                if (dx + dy > 200) return { x, y, h }; // snap on line-wrap-sized jumps
                 return cur;
             });
 
@@ -150,6 +200,10 @@ function PromptBoxTrainingExact(props: {
         };
     }, [caretIndex, prompt]);
 
+    // Ghost cursors (3+ player races). Same DOM-measurement trick as the main
+    // caret, but no rAF lerp -- ghost positions snap with a CSS transition.
+    // Reason: ghost cursors update at most ~10x/sec (server tick rate), so
+    // smoothing them isn't worth a per-opponent animation loop.
     useLayoutEffect(() => {
         if (!ghostCursors || ghostCursors.length === 0) {
             setGhostPositions({});
@@ -264,6 +318,8 @@ function PromptBoxTrainingExact(props: {
     );
 }
 
+// Player colors. Index 0 = me, 1..N = opponents in lobby order.
+// Grayscale on purpose -- keep it neutral against the dark UI.
 const RACER_COLORS = ["#f0f0f0", "#c4c4c4", "#9a9a9a", "#7a7a7a", "#5e5e5e"] as const;
 
 type WpmSample = { tSec: number; wpm: Record<string, number> };
@@ -374,6 +430,8 @@ function SharedWpmChart(props: {
 
 
 
+// The big component. Owns the WS connection, the local typing state, the
+// race-snapshot state, and the three views (lobby / battle / stats).
 export default function Multiplayer({ onExit, token }: { onExit: () => void; token?: string }) {
     const [pid, setPid] = useState<string>("");
     const [room, setRoom] = useState<RoomState | null>(null);
@@ -472,11 +530,17 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
 
     useEffect(() => {
         const ws = new WSClient((m: WSMsg) => {
+            // hello: the first message on every fresh WS connection. Carries a new
+            // pid + session token (both 24-char random ids the server made).
+            //
+            // If we have a stashed session from a prior connection in this tab,
+            // attempt to rejoin instead of treating this as a brand-new identity.
+            // The server will respond with rejoin_ok (restoring our old pid +
+            // game state) or rejoin_failed (race over or session expired).
             if (m.type === "hello") {
                 const d = m.data as { pid?: string; session?: string } | undefined;
                 sessionRef.current = d?.session ?? "";
 
-                // If we have a stashed session, try to rejoin instead of starting fresh.
                 const stash = persistedSessionRef.current;
                 if (stash && stash.rid && stash.session) {
                     ws.send({ type: "rejoin", rid: stash.rid, data: { session: stash.session } });
@@ -645,7 +709,9 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
     }, [room?.seed, room?.promptMode, lists]);
 
 
-    // Mirror room.players additively so opponents who drop mid-race retain their last-known state.
+    // lastKnown is an additive mirror of room.players. When an opponent drops
+    // mid-race the server removes them from room.players, but their previous
+    // state survives here so we can still render their frozen cursor and name.
     const [lastKnown, setLastKnown] = useState<Map<string, PlayerState>>(new Map());
     useEffect(() => {
         if (!room) {
@@ -659,8 +725,11 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
         });
     }, [room]);
 
-    // Snapshot of participant ordering taken when the race starts.
-    // Layout (split-screen vs ghost-shadowing) is decided from this and never shifts mid-race.
+    // raceParticipants locks the layout decision once a race starts.
+    // If 3 players race and one drops, opponents.length would go from 2 to 1
+    // and flip the layout from ghost-shadowing to split-screen mid-race, which
+    // is jarring. Snapshotting the pid list at RUNNING start and using that
+    // for layout means the view stays stable regardless of who disconnects.
     const [raceParticipants, setRaceParticipants] = useState<string[] | null>(null);
     useEffect(() => {
         if (!room) {
@@ -701,6 +770,14 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
         })),
     ] : [];
 
+    // Reports our typing progress to the server.
+    //
+    // Sends two kinds of messages: "progress" updates (throttled to roughly
+    // 8 per second so we don't spam the WS), and a one-time "finish" when we
+    // hit the end of the prompt with no pending error. Finish has to fire
+    // BEFORE the throttle gate, because otherwise: type the last char fast,
+    // stop typing, effect deps don't change, finish never gets sent. We tripped
+    // on this bug and fixed it by moving the finish check to the top.
     useEffect(() => {
         if (!room || room.status !== "RUNNING" || !prompt) return;
 
@@ -838,7 +915,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
 
     const onBack = () => {
         if (room?.rid) {
-            // Intentional leave — clear the rejoin stash so we don't try to come back.
+            // Intentional leave - clear the rejoin stash so we don't try to come back.
             persistedSessionRef.current = null;
             try { sessionStorage.removeItem("multitype:rejoin"); } catch { /* ignore */ }
 
@@ -847,7 +924,7 @@ export default function Multiplayer({ onExit, token }: { onExit: () => void; tok
             return;
         }
 
-        // Not in a room — exit back to the main app
+        // Not in a room, so exit back to the main app menu.
         onExit();
     }
 
