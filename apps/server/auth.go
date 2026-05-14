@@ -20,9 +20,9 @@ var jwtSecret = func() []byte {
 	if s := os.Getenv("JWT_SECRET"); s != "" {
 		return []byte(s)
 	}
-	log.Println("⚠️  JWT_SECRET not set — generating an ephemeral random secret.")
-	log.Println("⚠️  Existing tokens will be invalidated on every server restart.")
-	log.Println("⚠️  Set JWT_SECRET to a 32+ char secret in production.")
+	log.Println("warning: JWT_SECRET not set, generating a random secret for this run")
+	log.Println("warning: existing tokens will be invalidated on every restart")
+	log.Println("warning: set JWT_SECRET to a 32+ char string in production")
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatalf("failed to generate jwt secret: %v", err)
