@@ -1,2 +1,2 @@
 # multitype
-Multiplayer typing game
+a cool typing game
