@@ -15,6 +15,7 @@ import (
 	_ "embed"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"multiplayer-server/db"
@@ -101,6 +102,12 @@ func main() {
 	mux.HandleFunc("/api/me", handleMe)
 	mux.HandleFunc("/api/profile/", handleProfile)
 
-	log.Println("listening on: 8080")
-	log.Fatal(http.ListenAndServe(":8080", corsMiddleware(mux)))
+	// Render, Koyeb, Fly etc. assign a port via the PORT env var. Fall back to 8080 for local dev.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
+	log.Println("listening on", addr)
+	log.Fatal(http.ListenAndServe(addr, corsMiddleware(mux)))
 }

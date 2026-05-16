@@ -31,7 +31,10 @@ const RUN_KEYS = "multitype:runs:v1";
 const PROFILE_KEY = "multitype:profile:v1";
 const AUTH_KEY = "multitype:auth:v1";
 
-const API_BASE = "http://localhost:8080";
+// Override via VITE_API_BASE in apps/web/.env.local (dev) or in the host's env
+// (Cloudflare Pages / Vercel dashboard) for production. Defaults to localhost
+// so a fresh clone works without setup.
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8080";
 
 const DEFAULT_PROFILE: Profile = {
   displayName: "Rick",

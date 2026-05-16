@@ -22,10 +22,14 @@ type OnMsg = (m: WSMsg) => void;
 // Starts at 500ms, doubles each failure, never exceeds this.
 const MAX_BACKOFF_MS = 8000;
 
+// Override via VITE_WS_URL in apps/web/.env.local (dev) or in the host's env
+// (Cloudflare Pages / Vercel dashboard) for production -- e.g. wss://api.example.com/ws.
+const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL ?? "ws://127.0.0.1:8080/ws";
+
 export class WSClient {
     private ws: WebSocket | null = null;
     private onMsg: OnMsg;
-    private url = "ws://127.0.0.1:8080/ws";
+    private url = DEFAULT_WS_URL;
     private closed = false;          // true once close() is called -> stop reconnecting
     private backoffMs = 500;         // current backoff delay; resets on a successful open
     private reconnectTimer: number | null = null;
@@ -36,7 +40,7 @@ export class WSClient {
 
     // connect kicks off the first connection attempt. Subsequent reconnects
     // happen automatically via onclose -> scheduleReconnect.
-    connect(url = "ws://127.0.0.1:8080/ws") {
+    connect(url = DEFAULT_WS_URL) {
         this.url = url;
         this.closed = false;
         this.open();

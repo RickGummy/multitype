@@ -1,0 +1,10 @@
+# Keep the build context tiny so `docker build` doesn't ship junk to the daemon.
+multiplayer-server
+*.log
+.env
+.env.*
+.git
+.gitignore
+.DS_Store
+Dockerfile
+.dockerignore
