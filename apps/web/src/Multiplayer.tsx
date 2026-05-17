@@ -24,10 +24,9 @@ import type { RoomState, PlayerState } from "./net/types";
 import { EXPECTED_WORDLIST_VERSION } from "./net/types";
 
 // Number of words to generate per prompt for each mode.
-// (The "5" for short is intentional for fast playtesting; bump to 25 for normal play.)
 const WORD_COUNTS: Record<string, number> = {
-    short: 5, // change to 25
-    medium: 30,
+    short: 10,
+    medium: 20,
     long: 30,
     mixed: 40,
 };
