@@ -357,8 +357,12 @@ function WpmMiniChart(props: { values: number[] }) {
 
 
 
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
+  // With <2 points we can't derive a meaningful scale (0 points = Infinity,
+  // 1 point = min===max collapses the y-axis), so fall back to a fixed 0-100
+  // WPM scale. yTicks=5 then renders nicely as 0, 20, 40, 60, 80, 100.
+  const useFixedScale = values.length < 2;
+  const minV = useFixedScale ? 0 : Math.min(...values);
+  const maxV = useFixedScale ? 100 : Math.max(...values);
   const span = Math.max(1, maxV - minV);
 
   const x0 = padL;
@@ -366,7 +370,9 @@ function WpmMiniChart(props: { values: number[] }) {
   const y0 = H - padB;
   const y1 = padT;
 
-  const toX = (i: number) => x0 + ((x1 - x0) * i) / (values.length - 1);
+  // With a single point, (length - 1) is 0 -> NaN x. Center it instead.
+  const toX = (i: number) =>
+    values.length === 1 ? (x0 + x1) / 2 : x0 + ((x1 - x0) * i) / (values.length - 1);
   const toY = (v: number) => y0 - ((y0 - y1) * (v - minV)) / span;
 
   const points = values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
