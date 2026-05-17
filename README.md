@@ -10,7 +10,7 @@ Real-time multiplayer typing game. Up to 5 players race each other on the same p
 
 - React + TypeScript + Vite (frontend)
 - Go + gorilla/websocket (server)
-- Postgres via pgx (auth + race history, optional)
+- Postgres via pgx (auth + race history, not required)
 
 ## Run locally
 
