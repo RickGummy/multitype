@@ -11,10 +11,23 @@ package main
 import (
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
+
+// trustProxyHeaders controls whether X-Forwarded-For is honored when identifying
+// the client IP. Off by default: when off, we use the direct RemoteAddr, which a
+// remote attacker cannot spoof. Turn it on (TRUST_PROXY_HEADERS=1) only when the
+// server runs behind a proxy/load balancer that strips or sanitizes client-supplied
+// XFF headers. Without that, anyone can send `X-Forwarded-For: 1.2.3.4` to get a
+// fresh rate-limit bucket per request and bypass the limit entirely.
+var trustProxyHeaders = func() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("TRUST_PROXY_HEADERS")))
+	return v == "1" || v == "true" || v == "yes"
+}()
 
 // bucket = one IP's current counter.
 type bucket struct {
@@ -74,17 +87,18 @@ func (rl *RateLimiter) Allow(key string) (allowed bool, retryAfter int) {
 	return true, 0
 }
 
-// clientIP returns the client's IP. Prefers X-Forwarded-For (when running
-// behind a proxy/load balancer) then falls back to the direct RemoteAddr.
+// clientIP returns the client's IP. When TRUST_PROXY_HEADERS is set, we read the
+// leftmost entry from X-Forwarded-For (the original client IP as seen by the
+// outermost trusted proxy). Otherwise we use RemoteAddr directly so an attacker
+// can't forge their identity by sending an XFF header themselves.
 func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		// Take the first IP in the list.
-		for i := 0; i < len(fwd); i++ {
-			if fwd[i] == ',' {
-				return fwd[:i]
+	if trustProxyHeaders {
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			if comma := strings.IndexByte(fwd, ','); comma >= 0 {
+				return strings.TrimSpace(fwd[:comma])
 			}
+			return strings.TrimSpace(fwd)
 		}
-		return fwd
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

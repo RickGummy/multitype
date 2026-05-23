@@ -14,6 +14,12 @@ import (
 	"sync"
 )
 
+// maxRooms caps the number of concurrently active rooms. A spamming client can
+// otherwise loop create_room and fill memory with per-room state and goroutines.
+// 1000 is far above any realistic legitimate use for this app and well below
+// what the process can hold.
+const maxRooms = 1000
+
 type Hub struct {
 	mu    sync.Mutex       // protects `rooms`
 	rooms map[string]*Room // active rooms, keyed by 4-char room id
@@ -32,10 +38,16 @@ func (h *Hub) GetRoom(rid string) (*Room, bool) {
 }
 
 // CreateRoom mints a new room with a random 4-char id, marks `owner` as host,
-// and adds them as the first client. Returns the new room.
+// and adds them as the first client. Returns the new room, or nil if the hub is
+// already at maxRooms capacity (caller should surface that to the client).
 func (h *Hub) CreateRoom(owner *Client) *Room {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	if len(h.rooms) >= maxRooms {
+		log.Printf("warning: room creation refused, hub at capacity (%d)", len(h.rooms))
+		return nil
+	}
 
 	rid := newID(4)
 	room := NewRoom(rid, h)

@@ -193,6 +193,10 @@ func (c *Client) handle(m ClientMsg) {
 			c.name = sanitizeName(m.Name)
 		}
 		room := c.hub.CreateRoom(c)
+		if room == nil {
+			c.send <- ServerMsg{Type: "error", Err: "server at capacity, try again later"}
+			return
+		}
 		if c.name != "" {
 			room.SetName(c.pid, c.name)
 		}

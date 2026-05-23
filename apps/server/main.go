@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"multiplayer-server/db"
@@ -24,28 +25,62 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// allowedOrigins is the set of Origin header values we accept for both HTTP CORS
+// and the WebSocket upgrade. A nil map means "no allowlist configured, allow all"
+// (the dev default so a fresh clone works zero-config). Set ALLOWED_ORIGINS to a
+// comma-separated list in production to lock this down.
+var allowedOrigins = func() map[string]bool {
+	raw := strings.TrimSpace(os.Getenv("ALLOWED_ORIGINS"))
+	if raw == "" {
+		log.Println("warning: ALLOWED_ORIGINS not set, accepting requests from any origin")
+		return nil
+	}
+	m := make(map[string]bool)
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			m[o] = true
+		}
+	}
+	return m
+}()
+
+func originAllowed(origin string) bool {
+	if allowedOrigins == nil {
+		return true
+	}
+	return origin != "" && allowedOrigins[origin]
+}
+
 // initSQL holds the schema. Embedded at compile time so the binary is self-contained.
 //
 //go:embed migrations/001_init.sql
 var initSQL string
 
 // upgrader turns plain HTTP requests into WebSocket connections.
-// CheckOrigin returns true because we want any browser tab (any origin) to be
-// able to connect during development. In production you'd lock this down.
+// CheckOrigin enforces the ALLOWED_ORIGINS allowlist (or accepts any origin when
+// the allowlist is unset, for dev). Without an origin check, any random site can
+// open a WS to our server and drive game traffic from a user's browser.
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		return originAllowed(r.Header.Get("Origin"))
 	},
 }
 
 // corsMiddleware adds the headers browsers need to call the API from a different origin
 // (the Vite dev server runs on :5173 while the API is on :8080, so the browser treats
-// them as cross-origin).
+// them as cross-origin). When ALLOWED_ORIGINS is set we echo back the matching origin
+// instead of "*" so the allowlist is actually enforced by the browser.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins == nil {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if originAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
@@ -78,8 +113,12 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// Per-IP cap on new WebSocket connections. Stops a single host from spawning
+	// thousands of read/write goroutine pairs to exhaust memory and CPU.
+	wsLimiter := NewRateLimiter(30, time.Minute)
+
 	// /ws is the only stateful endpoint. Upgrade to WebSocket, spawn read+write goroutines.
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/ws", wsLimiter.limit(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Println("upgrade error:", err)
@@ -88,7 +127,7 @@ func main() {
 		client := NewClient(hub, conn)
 		go client.writePump()
 		go client.readPump()
-	})
+	}))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -121,6 +121,10 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cap the request body. Without this, json.NewDecoder will happily buffer
+	// gigabytes of garbage into memory. 4KB is far more than a username+password.
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -185,6 +189,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
 
 	var body struct {
 		Username string `json:"username"`
