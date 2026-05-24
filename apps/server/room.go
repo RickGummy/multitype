@@ -585,6 +585,21 @@ func (r *Room) SuspendClient(pid, session string) bool {
 		r.purgeSuspended(session, rid)
 	})
 
+	// If that was the last live player, the race is abandoned. Drop every
+	// suspended snapshot (including the one we just stored) so a reconnecting
+	// player can't crawl back into a dead room, and so MaybeDeleteRoom -- called
+	// right after SuspendClient by cleanup() -- sees IsEmpty() and tears it down.
+	if len(r.clients) == 0 {
+		for sess, s := range r.suspended {
+			if s.purgeTimer != nil {
+				s.purgeTimer.Stop()
+			}
+			delete(r.suspended, sess)
+		}
+		r.broadcastLocked(ServerMsg{Type: "room_state", Rid: r.rid, Data: r.snapshotLocked()})
+		return true
+	}
+
 	// If the suspended player was the only one we were waiting on, finish the race.
 	if r.status == "RUNNING" && len(r.clients) > 0 && r.allFinishedLocked() {
 		r.status = "FINISHED"
@@ -668,6 +683,19 @@ func (r *Room) RejoinClient(c *Client, session string) bool {
 
 	// If the race ended while they were gone, drop the session and tell them to start over.
 	if r.status != "COUNTDOWN" && r.status != "RUNNING" {
+		if snap.purgeTimer != nil {
+			snap.purgeTimer.Stop()
+		}
+		delete(r.suspended, session)
+		return false
+	}
+
+	// Don't bring a player back into a room where every other player has dropped.
+	// The race is effectively dead even if status is still RUNNING/COUNTDOWN, so
+	// send them back to the lobby instead of letting them resurrect an empty room.
+	// (SuspendClient normally wipes suspended snapshots when the last client leaves,
+	// so this is a belt-and-suspenders check.)
+	if len(r.clients) == 0 {
 		if snap.purgeTimer != nil {
 			snap.purgeTimer.Stop()
 		}

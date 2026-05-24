@@ -255,22 +255,93 @@ func TestRejoinClient_FailsWithUnknownSession(t *testing.T) {
 	}
 }
 
+func TestSuspendClient_WipesSuspendedWhenLastClientLeaves(t *testing.T) {
+	r := newTestRoom()
+	a := newTestClient("a")
+	b := newTestClient("b")
+	r.AddClient(a)
+	r.AddClient(b)
+	r.mu.Lock()
+	r.status = "RUNNING"
+	a.status = "RUNNING"
+	b.status = "RUNNING"
+	r.mu.Unlock()
+
+	if !r.SuspendClient(a.pid, a.session) {
+		t.Fatal("first suspend failed")
+	}
+	r.mu.Lock()
+	_, aSuspended := r.suspended[a.session]
+	r.mu.Unlock()
+	if !aSuspended {
+		t.Fatal("a's snapshot should still be around while b is still live")
+	}
+
+	if !r.SuspendClient(b.pid, b.session) {
+		t.Fatal("second suspend failed")
+	}
+
+	r.mu.Lock()
+	clientsLeft := len(r.clients)
+	suspendedLeft := len(r.suspended)
+	r.mu.Unlock()
+	if clientsLeft != 0 {
+		t.Fatalf("expected 0 live clients after both suspends, got %d", clientsLeft)
+	}
+	if suspendedLeft != 0 {
+		t.Fatalf("expected suspended map to be wiped when room hits 0 live clients, got %d entries", suspendedLeft)
+	}
+	if !r.IsEmpty() {
+		t.Fatal("room should report empty so the hub can delete it")
+	}
+}
+
+func TestRejoinClient_FailsWhenAllOtherPlayersDisconnected(t *testing.T) {
+	r := newTestRoom()
+	a := newTestClient("a")
+	b := newTestClient("b")
+	r.AddClient(a)
+	r.AddClient(b)
+	r.mu.Lock()
+	r.status = "RUNNING"
+	a.status = "RUNNING"
+	b.status = "RUNNING"
+	r.mu.Unlock()
+
+	if !r.SuspendClient(a.pid, a.session) {
+		t.Fatal("suspend a failed")
+	}
+	if !r.SuspendClient(b.pid, b.session) {
+		t.Fatal("suspend b failed")
+	}
+
+	newClient := newTestClient("a-rejoined")
+	if r.RejoinClient(newClient, a.session) {
+		t.Fatal("rejoin should fail once every live player has disconnected")
+	}
+}
+
 func TestIsEmpty_TrueOnlyWhenNoClientsAndNoSuspended(t *testing.T) {
 	r := newTestRoom()
 	if !r.IsEmpty() {
 		t.Fatal("fresh room should be empty")
 	}
 	a := newTestClient("a")
+	b := newTestClient("b")
 	r.AddClient(a)
+	r.AddClient(b)
 	if r.IsEmpty() {
 		t.Fatal("room with a client should not be empty")
 	}
 	r.mu.Lock()
 	r.status = "RUNNING"
 	a.status = "RUNNING"
+	b.status = "RUNNING"
 	r.mu.Unlock()
+	// Only suspend one of the two so the room still has a live client; otherwise
+	// SuspendClient eagerly wipes the snapshot (the abandoned-room cleanup path).
 	r.SuspendClient(a.pid, a.session)
 	if r.IsEmpty() {
-		t.Fatal("room with a suspended session should not be empty")
+		t.Fatal("room with a suspended session and a live client should not be empty")
 	}
 }
