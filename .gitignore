@@ -143,6 +143,7 @@ CLAUDE.md
 
 # Local docs and notes
 multitype-guide.pdf
+multitype_upgrade_spec.md
 *.pdf
 notes/
 
